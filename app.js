@@ -299,6 +299,23 @@
   }
 
   var lastState = null;
+  var lastAppliedAt = 0; // updated_at (ms) of the displayed state, any source
+
+  /* Apply a state from ANY source (poll or ws). Newest wins; stale loses.
+   * Idempotent: re-applying the same state never moves the spider twice. */
+  function applyState(state, source) {
+    if (!state || typeof state !== "object") return false;
+    var t = Date.parse(state.updated_at);
+    if (!isNaN(t)) {
+      if (t < lastAppliedAt) return false;
+      lastAppliedAt = t;
+    }
+    lastState = state;
+    render(state);
+    renderAge(state);
+    return true;
+  }
+
   function poll() {
     fetch(STATE_URL, { cache: "no-store" })
       .then(function (r) {
@@ -307,21 +324,124 @@
       })
       .then(function (state) {
         document.getElementById("offline").hidden = true;
-        lastState = state;
-        render(state);
-        renderAge(state);
+        applyState(state, "poll");
       })
       .catch(function () {
         document.getElementById("offline").hidden = false;
       });
   }
 
+  /* ---------- realtime via WebSocket (LIVE MODE) ----------
+   * Public /ws only. No secret, no credential, no Cloudflare token here.
+   * Polling above stays as fallback and keeps running always. */
+  var WS_URL = qs.get("ws") ||
+    "wss://spider-realtime-poc.sabuncolek1508.workers.dev/ws";
+  var ws = null;
+  var wsStatus = "CONNECTING"; // LIVE | FALLBACK | CONNECTING
+  var wsRetryMs = 2000;
+  var WS_RETRY_MAX = 60000;
+  var reconnectTimer = null;
+  var seenEventIds = new Set();
+  var maxSeq = -1;
+
+  function setConn(status) {
+    wsStatus = status;
+    var dot = document.getElementById("connDot");
+    var txt = document.getElementById("connText");
+    if (!dot || !txt) return;
+    var cls = status === "LIVE" ? "on" : status === "CONNECTING" ? "mid" : "";
+    dot.setAttribute("class", cls);
+    txt.setAttribute("class", cls);
+    txt.textContent = status;
+    txt.setAttribute("title", status === "LIVE"
+      ? "realtime via WebSocket"
+      : status === "CONNECTING"
+        ? "connecting to realtime channel…"
+        : "realtime unavailable — polling state.json");
+  }
+
+  /* Validate + dedup a realtime envelope, then apply its state.
+   * Returns true only when the state was actually applied. */
+  function handleWsMessage(data) {
+    var msg;
+    try {
+      msg = JSON.parse(data);
+    } catch (e) {
+      return false;
+    }
+    if (!msg || msg.type !== "spider_state" ||
+        !msg.state || typeof msg.state !== "object") {
+      return false;
+    }
+    if (msg.event_id) {
+      if (seenEventIds.has(msg.event_id)) return false; // duplicate
+      seenEventIds.add(msg.event_id);
+      if (seenEventIds.size > 500) {
+        seenEventIds = new Set(Array.from(seenEventIds).slice(-200));
+      }
+    }
+    if (typeof msg.seq === "number" && isFinite(msg.seq)) {
+      if (msg.seq <= maxSeq) return false; // old sequence; newer already seen
+      maxSeq = msg.seq;
+    }
+    return applyState(msg.state, "ws");
+  }
+
+  function scheduleReconnect() {
+    setConn("FALLBACK"); // spider keeps last position; polling continues
+    if (reconnectTimer) return;
+    reconnectTimer = setTimeout(function () {
+      reconnectTimer = null;
+      connectWs();
+    }, wsRetryMs);
+    wsRetryMs = Math.min(wsRetryMs * 2, WS_RETRY_MAX);
+  }
+
+  function connectWs() {
+    if (ws) {
+      try { ws.close(); } catch (e) {}
+      ws = null;
+    }
+    setConn("CONNECTING");
+    var socket;
+    try {
+      socket = new WebSocket(WS_URL);
+    } catch (e) {
+      scheduleReconnect();
+      return;
+    }
+    ws = socket;
+    socket.onopen = function () {
+      wsRetryMs = 2000; // reset backoff on success
+      setConn("LIVE");
+    };
+    socket.onmessage = function (ev) {
+      handleWsMessage(ev.data);
+    };
+    var onDown = function () {
+      if (ws === socket) ws = null;
+      scheduleReconnect(); // never resets the spider; never stops polling
+    };
+    socket.onclose = onDown;
+    socket.onerror = onDown;
+  }
+
   // expose for tests (node --check friendly, no-ops in browser)
   window.__spider = { resolveTarget: resolveTarget, toolToNode: toolToNode,
     workNodeFromActivity: workNodeFromActivity, POS: POS, STALE_MS: STALE_MS,
-    fitView: fitView };
+    fitView: fitView,
+    _wsState: function () {
+      return { status: wsStatus, maxSeq: maxSeq,
+               seen: seenEventIds.size, retryMs: wsRetryMs,
+               target: spiderTarget, lastAppliedAt: lastAppliedAt };
+    },
+    _handleWsMessage: handleWsMessage,
+    _applyState: applyState,
+    _connectWs: connectWs };
 
   poll();
   setInterval(poll, POLL_MS);
   setInterval(function () { if (lastState) renderAge(lastState); }, 1000);
+  setConn("CONNECTING");
+  connectWs();
 })();

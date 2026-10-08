@@ -14,8 +14,8 @@
     "completed_at": null
   },
   "execution": {
-    "current_step": "PROCESS",
-    "current_tool": "exec",
+    "current_step": "SEARCH",
+    "current_tool": "browser_search",
     "tool_status": null,
     "latest_action": "test",
     "latest_result_preview": null
@@ -32,7 +32,7 @@
       "RESULT",
       "COMPLETE"
     ],
-    "active_node": "PROCESS",
+    "active_node": "SEARCH",
     "completed_nodes": [
       "SEARCH",
       "COLLECT"
@@ -43,9 +43,9 @@
     {
       "timestamp": "2026-10-08T18:20:00+00:00",
       "type": "tool",
-      "label": "tool_call:exec",
+      "label": "tool_call:browser_search",
       "status": "info",
-      "tool": "exec",
+      "tool": "browser_search",
       "preview": null
     }
   ],

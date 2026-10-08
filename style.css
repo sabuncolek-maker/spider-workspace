@@ -107,6 +107,20 @@ body {
 }
 #snapMeta { font-family: var(--mono); font-size: 10px; color: var(--dim); }
 
+/* realtime connection indicator (small, non-dominant) */
+#connDot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--faint); display: inline-block; flex: none;
+}
+#connDot.on { background: var(--ok); box-shadow: 0 0 6px rgba(127, 174, 122, 0.55); }
+#connDot.mid { background: var(--accent); }
+#connText {
+  font-family: var(--mono); font-size: 9px; letter-spacing: 0.16em;
+  color: var(--faint); margin-left: -6px;
+}
+#connText.on { color: var(--ok); }
+#connText.mid { color: var(--accent); }
+
 #bridgeNote {
   margin-top: 8px;
   font-family: var(--mono);
