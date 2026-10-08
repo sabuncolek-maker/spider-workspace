@@ -203,6 +203,8 @@
     w1b_activeOverlays = [];
   }
 
+  // W2-B: cluster adjacency for local propagation (from inter-cluster edges)
+  var W2B_ADJACENT = { 0: [1, 3], 1: [0, 2], 2: [1, 3], 3: [0, 2] };
   function w1b_clusterResponse(node) {
     if (prefersReducedMotion) return;
     var c = W1B_NODE_CLUSTER[node];
@@ -210,14 +212,26 @@
     if (c === w1b_activeCluster) return;
     var ambient = document.getElementById("ambient");
     if (!ambient) return;
+    // Clear previous active + semi-active
     if (w1b_activeCluster >= 0) {
       var prev = ambient.querySelectorAll('[data-c="' + w1b_activeCluster + '"]');
       for (var i = 0; i < prev.length; i++) prev[i].classList.remove("amb-active");
+      var prevN = W2B_ADJACENT[w1b_activeCluster] || [];
+      for (var n = 0; n < prevN.length; n++) {
+        var prevS = ambient.querySelectorAll('[data-c="' + prevN[n] + '"]');
+        for (var m = 0; m < prevS.length; m++) prevS[m].classList.remove("amb-semi");
+      }
     }
     w1b_activeCluster = c;
     if (c >= 0) {
       var cur = ambient.querySelectorAll('[data-c="' + c + '"]');
       for (var j = 0; j < cur.length; j++) cur[j].classList.add("amb-active");
+      // W2-B: propagate weaker response to adjacent clusters
+      var adj = W2B_ADJACENT[c] || [];
+      for (var k = 0; k < adj.length; k++) {
+        var semi = ambient.querySelectorAll('[data-c="' + adj[k] + '"]');
+        for (var s = 0; s < semi.length; s++) semi[s].classList.add("amb-semi");
+      }
     }
   }
 
