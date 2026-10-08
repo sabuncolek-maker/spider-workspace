@@ -91,47 +91,76 @@
    * 4 clusters, 90 secondary nodes, 129 ambient edges, 4 main visual paths.
    * Rendered once at init into <g id="ambient"> (behind #threads).
    * NEVER used by routePath(), gait, telemetry, or locomotion. */
-  var AMBIENT_NODES = [
-    [192,409,0],[136,444,0],[232,441,0],[191,426,0],[143,492,0],[81,497,0],
-    [144,480,0],[141,466,0],[164,433,0],[189,496,0],[157,502,0],[187,470,0],
-    [96,511,0],[130,495,0],[127,529,0],[178,460,0],[169,484,0],[173,474,0],
-    [193,447,0],[140,437,0],[182,438,0],[158,548,0],[102,436,0],[137,450,0],
-    [991,569,1],[1003,588,1],[985,644,1],[992,630,1],[1031,656,1],[1073,637,1],
-    [996,569,1],[1104,591,1],[1052,644,1],[1086,616,1],[1035,608,1],[1005,650,1],
-    [1065,567,1],[1006,607,1],[1077,574,1],[1050,622,1],[1018,614,1],[962,557,1],
-    [1078,545,1],[1024,641,1],[1020,622,1],[1021,614,1],[1079,557,1],[968,638,1],
-    [969,235,2],[972,233,2],[990,251,2],[1009,239,2],[974,257,2],[971,222,2],
-    [969,222,2],[948,304,2],[1008,255,2],[944,212,2],[966,291,2],[917,239,2],
-    [964,208,2],[917,249,2],[972,261,2],[970,243,2],[960,275,2],[973,249,2],
-    [968,296,2],[952,195,2],[938,311,2],[942,253,2],
-    [247,700,3],[265,718,3],[182,710,3],[215,729,3],[268,733,3],[260,709,3],
-    [257,738,3],[232,708,3],[208,711,3],[210,707,3],[305,675,3],[235,720,3],
-    [231,711,3],[268,682,3],[216,736,3],[217,732,3],[299,742,3],[238,687,3],
-    [256,708,3],[293,748,3]
+  /* W3-B: structured ambient web.
+   * The previous ambient graph used irregular cross-links that read as clutter.
+   * This version uses deterministic radial spokes + concentric curved bands
+   * in four quiet zones: fewer crossings, consistent spacing, more negative
+   * space. Presentation only; never used by routing or locomotion. */
+  var AMBIENT_WEB_ZONES = [
+    { cx: 185, cy: 250, rx: 150, ry: 105, a0: 18, a1: 162, c: 0 },
+    { cx: 1015, cy: 245, rx: 155, ry: 108, a0: 18, a1: 162, c: 1 },
+    { cx: 1015, cy: 610, rx: 155, ry: 105, a0: 198, a1: 342, c: 2 },
+    { cx: 185, cy: 610, rx: 145, ry: 100, a0: 198, a1: 342, c: 3 }
   ];
-  var AMBIENT_EDGES = [
-    [0,3],[0,20],[1,23],[1,19],[2,18],[2,3],[3,20],[4,6],[4,13],[5,12],
-    [5,13],[6,7],[7,23],[8,20],[8,19],[9,16],[9,11],[4,10],[10,16],[11,15],
-    [11,17],[12,14],[6,13],[13,14],[15,17],[16,17],[18,20],[15,18],[19,23],
-    [14,21],[10,21],[1,22],[22,23],[24,30],[24,25],[25,37],[25,30],[26,27],
-    [26,47],[27,35],[28,43],[28,32],[29,32],[29,33],[31,33],[31,38],[32,39],
-    [34,45],[34,40],[26,35],[35,43],[36,38],[36,46],[37,40],[37,45],[38,46],
-    [34,39],[40,45],[40,44],[24,41],[30,41],[42,46],[36,42],[43,44],[44,45],
-    [27,47],[48,49],[48,63],[49,63],[50,52],[50,65],[51,56],[50,51],[52,62],
-    [52,65],[53,54],[49,53],[49,54],[55,68],[55,66],[50,56],[57,67],[57,60],
-    [58,66],[58,64],[59,61],[59,69],[54,60],[53,60],[61,69],[62,65],[63,65],
-    [62,64],[60,67],[66,68],[64,69],[70,88],[70,75],[71,75],[71,88],[72,78],
-    [72,79],[73,85],[73,84],[74,76],[71,74],[75,88],[71,76],[77,82],[77,81],
-    [78,79],[73,78],[79,82],[80,83],[75,80],[81,82],[70,83],[75,83],[84,85],
-    [86,89],[74,86],[70,87],[77,87],[74,89],[2,41],[2,47],[41,68],[21,87],
-    [68,80]
-  ];
-  var AMBIENT_PATHS = [
-    [[150,470],[350,620],[600,680],[850,660],[1030,600]],
-    [[960,250],[1010,400],[1030,600]],
-    [[150,470],[180,590],[260,710]],
-    [[960,250],[700,180],[400,220],[150,470]]
-  ];
+  var AMBIENT_CLUSTER_CLS = ["amb-near", "amb-near", "amb-mid", "amb-far"];
+
+  function ambientPoint(z, ring, t) {
+    var a = (z.a0 + (z.a1 - z.a0) * t) * Math.PI / 180;
+    var scale = ring / 3;
+    return [
+      z.cx + Math.cos(a) * z.rx * scale,
+      z.cy + Math.sin(a) * z.ry * scale
+    ];
+  }
+
+  (function buildAmbient() {
+    var g = document.getElementById("ambient");
+    if (!g) return;
+    var zone, ring, i, t, p, q, d, cls;
+
+    for (var zi = 0; zi < AMBIENT_WEB_ZONES.length; zi++) {
+      zone = AMBIENT_WEB_ZONES[zi];
+      cls = AMBIENT_CLUSTER_CLS[zone.c];
+
+      /* Three curved bands: clean concentric structure. */
+      for (ring = 1; ring <= 3; ring++) {
+        var rxs = zone.rx * ring / 3;
+        var rys = zone.ry * ring / 3;
+        var a0 = zone.a0 * Math.PI / 180;
+        var a1 = zone.a1 * Math.PI / 180;
+        var p0 = [zone.cx + Math.cos(a0) * rxs, zone.cy + Math.sin(a0) * rys];
+        var p1 = [zone.cx + Math.cos(a1) * rxs, zone.cy + Math.sin(a1) * rys];
+        d = "M " + p0[0].toFixed(1) + " " + p0[1].toFixed(1) +
+            " A " + rxs.toFixed(1) + " " + rys.toFixed(1) +
+            " 0 0 1 " + p1[0].toFixed(1) + " " + p1[1].toFixed(1);
+        el("path", { d:d, "class":"amb-edge " + cls, "data-c":zone.c }, g);
+      }
+
+      /* Five evenly spaced radial strands. */
+      for (i = 0; i < 5; i++) {
+        t = i / 4;
+        p = ambientPoint(zone, 0.45, t);
+        q = ambientPoint(zone, 3, t);
+        d = "M " + p[0].toFixed(1) + " " + p[1].toFixed(1) +
+            " L " + q[0].toFixed(1) + " " + q[1].toFixed(1);
+        el("path", { d:d, "class":"amb-edge " + cls, "data-c":zone.c }, g);
+      }
+
+      /* Nodes appear only at regular intersections. */
+      for (ring = 1; ring <= 3; ring++) {
+        for (i = 0; i < 5; i++) {
+          t = i / 4;
+          p = ambientPoint(zone, ring, t);
+          el("circle", {
+            cx:p[0].toFixed(1), cy:p[1].toFixed(1),
+            r:ring === 3 ? 2.2 : 1.8,
+            "class":"amb-node " + cls, "data-c":zone.c
+          }, g);
+        }
+      }
+    }
+  })();
+
   // cluster index -> opacity class (depth hierarchy)
   var AMBIENT_CLUSTER_CLS = ["amb-near", "amb-near", "amb-mid", "amb-far"];
 
