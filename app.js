@@ -358,6 +358,12 @@
    * Driven by actual body velocity; integrated into travelLegs frame loop.
    * No new permanent rAF. All poses via solveLegIK(). */
   var GROUP_A = [0, 3, 5, 6], GROUP_B = [1, 2, 4, 7];
+  // L6-J: reduced motion — no gait animation, but position/rotation still correct
+  var prefersReducedMotion = false;
+  try {
+    prefersReducedMotion = window.matchMedia &&
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  } catch (e) {}
   // L3: dynamic stride and cadence bounds
   var STRIDE_MIN = 4, STRIDE_MAX = 16; // IK-safe: max reach 55.5, home ~46
   var CADENCE_MIN = 0.5, CADENCE_MAX = 2.5; // cycles/sec, deterministic
@@ -402,6 +408,7 @@
   }
 
   function showContact(i, x, y) {
+    if (prefersReducedMotion) return; // L6-J: no contact animation
     if (!ensureContacts()) return;
     var c = contactsG.children[i];
     if (!c) return;
@@ -490,6 +497,9 @@
   }
 
   function updateGait(now, x, y, tangentDeg) {
+    // L6-J: reduced motion — skip gait animation entirely.
+    // Spider still follows path (position/rotation), legs stay in home pose.
+    if (prefersReducedMotion) return;
     // Velocity from position delta
     var dt = 0.016;
     if (gait.hasPrev) {
@@ -656,6 +666,7 @@
 
   function hubUpdate(dt) {
     if (!gait.hub.active) return;
+    if (prefersReducedMotion) { gait.hub.active = false; return; }
     gait.hub.stepT += dt;
     var t = Math.min(1, gait.hub.stepT / 0.08); // 80ms for mini-steps
     var s = t * t * (3 - 2 * t); // smoothstep
