@@ -273,6 +273,7 @@
         "<span>" + esc(a.label || "") + sys + "</span>";
       list.appendChild(li);
     });
+    renderEventHistory(); // realtime event history sits atop snapshot activity
 
     paintNodes(state, resolveTarget(state, spiderTarget));
     var target = resolveTarget(state, spiderTarget);
@@ -400,6 +401,108 @@
     if (el) el.innerHTML = html;
   }
 
+  /* ---------- visual event queue (v0.5) ----------
+   * Realtime TOOL_STARTED events play through a FIFO visual queue so the
+   * spider moves step-by-step at human speed (min 1.2s per event).
+   * Telemetry itself is never slowed: events are received in real time,
+   * recorded in history immediately, and never dropped for arriving fast.
+   * Only the spider's MOVEMENT is paced. Snapshots (state.json) keep
+   * newest-wins and never enter the queue. */
+  var VISUAL_MIN_MS = 1200;
+  var visualQueue = [];   // FIFO: {node, tool, event_id, ts, status}
+  var queueBusy = false;
+  var playingItem = null;
+  var eventHistory = [];  // newest-first, max 8, real-time (not queued)
+
+  function fmtClock(ts) {
+    var d = new Date(ts);
+    function p(n) { return (n < 10 ? "0" : "") + n; }
+    return p(d.getHours()) + ":" + p(d.getMinutes()) + ":" + p(d.getSeconds());
+  }
+
+  function updateQueueIndicator() {
+    var pill = document.getElementById("queuePill");
+    if (!pill) return;
+    var n = visualQueue.length;
+    if (n > 0) {
+      pill.hidden = false;
+      pill.textContent = n + " QUEUED";
+    } else {
+      pill.hidden = true;
+    }
+  }
+
+  function addEventHistory(ts, node, tool, status) {
+    eventHistory.unshift({ clock: fmtClock(ts), node: node || "UNKNOWN",
+                           tool: tool || "", status: status });
+    if (eventHistory.length > 8) eventHistory.length = 8;
+    renderEventHistory();
+  }
+
+  function renderEventHistory() {
+    var list = document.getElementById("feedList");
+    if (!list) return;
+    var olds = list.querySelectorAll("li.ev-hist");
+    for (var i = 0; i < olds.length; i++) olds[i].parentNode.removeChild(olds[i]);
+    for (var j = eventHistory.length - 1; j >= 0; j--) {
+      var e = eventHistory[j];
+      var li = document.createElement("li");
+      li.className = "ev-hist " + (e.status === "DONE" || e.status === "COMPLETE" ? "succ"
+        : e.status === "FAILED" || e.status === "ERROR" ? "fail" : "run");
+      li.innerHTML = '<span class="t">' + esc(e.clock) + "</span>" +
+        '<span class="dot"></span><span><b>' + esc(e.node) + "</b> " + esc(e.status) +
+        (e.tool ? ' <span class="dim">(' + esc(e.tool) + ")</span>" : "") + "</span>";
+      list.insertBefore(li, list.firstChild);
+    }
+    while (list.children.length > 14) list.removeChild(list.lastChild);
+  }
+
+  function markQueuedTool(tool, ok) {
+    var st = ok ? "done" : "failed";
+    if (playingItem && playingItem.tool === tool && playingItem.status === "started") {
+      playingItem.status = st;
+      return true;
+    }
+    for (var i = 0; i < visualQueue.length; i++) {
+      if (visualQueue[i].tool === tool && visualQueue[i].status === "started") {
+        visualQueue[i].status = st;
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function statusTag(status) {
+    if (status === "done") return ' <span style="color:var(--ok)">[done]</span>';
+    if (status === "failed") return ' <span style="color:var(--error)">[failed]</span>';
+    return ' <span style="color:var(--accent)">[started]</span>';
+  }
+
+  function pumpQueue() {
+    if (queueBusy) { updateQueueIndicator(); return; }
+    var item = visualQueue.shift();
+    updateQueueIndicator();
+    if (!item) return;
+    // A newer snapshot already superseded this event: skip the visual so
+    // the spider never moves backwards. History already recorded it live.
+    if (item.ts <= lastAppliedAt) { pumpQueue(); return; }
+    queueBusy = true;
+    playingItem = item;
+    var label = item.node || "UNKNOWN";
+    // same node twice: no move out-and-back; still occupies its 1.2s slot
+    // and is recorded in history/readout like every other event.
+    if (item.node && POS[item.node] && item.node !== spiderTarget) {
+      moveSpider(item.node);
+    }
+    setRo("roTool", esc(item.tool || "?") + statusTag(item.status));
+    setRo("roStep", esc(label));
+    setTimeout(function () {
+      queueBusy = false;
+      playingItem = null;
+      pumpQueue();
+    }, VISUAL_MIN_MS);
+  }
+
   function handleActionEvent(msg) {
     if (!msg || msg.type !== "spider_event" || !msg.event_type || !msg.event_id) {
       return false;
@@ -427,21 +530,34 @@
 
     if (et === "TOOL_STARTED") {
       if (isSystem) return true;
-      if (tool) setRo("roTool", esc(tool) + ' <span style="color:var(--accent)">[started]</span>');
-      if (node) setRo("roStep", esc(node));
-      if (node && POS[node] && node !== spiderTarget) moveSpider(node);
+      // every valid TOOL_STARTED enters the visual FIFO; nothing is dropped
+      // for arriving fast. History records it in real time.
+      visualQueue.push({ node: node, tool: tool, event_id: msg.event_id,
+                         ts: ts, status: "started" });
+      addEventHistory(ts, node, tool, "STARTED");
+      updateQueueIndicator();
+      pumpQueue();
       return true;
     }
     if (et === "TOOL_COMPLETED" || et === "TOOL_FAILED") {
       var ok = msg.success !== false;
       if (tool && !isSystem) {
-        setRo("roTool", esc(tool) + (ok
-          ? ' <span style="color:var(--ok)">[done]</span>'
-          : ' <span style="color:var(--error)">[failed]</span>'));
+        markQueuedTool(tool, ok);
+        addEventHistory(ts, node, tool, ok ? "DONE" : "FAILED");
+        // readout follows the live status of the displayed tool
+        if (playingItem && playingItem.tool === tool) {
+          setRo("roTool", esc(tool) + statusTag(ok ? "done" : "failed"));
+        }
       }
-      // a REAL tool failure moves the spider to ERROR; completions never
-      // move it (the next TOOL_STARTED positions it)
-      if (!ok && !isSystem && spiderTarget !== "ERROR") moveSpider("ERROR");
+      // a REAL tool failure is visualised as ERROR, in FIFO order like
+      // everything else; completions never move the spider.
+      if (!ok && !isSystem) {
+        visualQueue.push({ node: "ERROR", tool: tool, event_id: msg.event_id + ":err",
+                           ts: ts, status: "failed" });
+        addEventHistory(ts, "ERROR", tool, "ERROR");
+        updateQueueIndicator();
+        pumpQueue();
+      }
       return true;
     }
     if (et === "TASK_STARTED") {
@@ -451,11 +567,20 @@
       return true;
     }
     if (et === "TASK_COMPLETED") {
-      if (spiderTarget !== "COMPLETE") moveSpider("COMPLETE");
+      // plays after the events already queued, then the spider rests at COMPLETE
+      visualQueue.push({ node: "COMPLETE", tool: msg.task || "task",
+                         event_id: msg.event_id, ts: ts, status: "done" });
+      addEventHistory(ts, "COMPLETE", msg.task || "task", "COMPLETE");
+      updateQueueIndicator();
+      pumpQueue();
       return true;
     }
     if (et === "TASK_FAILED") {
-      if (spiderTarget !== "ERROR") moveSpider("ERROR");
+      visualQueue.push({ node: "ERROR", tool: msg.task || "task",
+                         event_id: msg.event_id, ts: ts, status: "failed" });
+      addEventHistory(ts, "ERROR", msg.task || "task", "FAILED");
+      updateQueueIndicator();
+      pumpQueue();
       return true;
     }
     return false;
@@ -528,6 +653,9 @@
     _handleActionEvent: handleActionEvent,
     _dispatchRealtimeMessage: dispatchRealtimeMessage,
     _applyState: applyState,
+    _queueLen: function () { return visualQueue.length; },
+    _queueBusy: function () { return queueBusy; },
+    _eventHistory: function () { return eventHistory.slice(); },
     _connectWs: connectWs };
 
   poll();

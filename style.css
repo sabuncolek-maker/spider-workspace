@@ -120,6 +120,11 @@ body {
 }
 #connText.on { color: var(--ok); }
 #connText.mid { color: var(--accent); }
+#queuePill {
+  font-family: var(--mono); font-size: 9px; letter-spacing: 0.16em;
+  color: var(--accent); border: 1px solid var(--accent);
+  border-radius: 3px; padding: 1px 5px; margin-left: 6px; opacity: 0.85;
+}
 
 #bridgeNote {
   margin-top: 8px;
