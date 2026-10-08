@@ -168,6 +168,8 @@
    * Nested <g> with transform-origin at each joint, ready for FK/IK in L1.
    * L0 is STATIC home stance only — no animation, no IK, no gait. */
   var LEG_UL = 26, LEG_LL = 30, LEG_FL = 10;
+  var legHome = []; // per leg: {hx, hy, spread, kneeBend, ankleBend}
+  var legEls = [];  // per leg: {hip, knee, ankle} element refs
   function buildLegs() {
     var legsG = document.getElementById("legs");
     // 8 legs: [hipX, hipY, spreadDeg]. Negative spread = left side.
@@ -178,10 +180,13 @@
     defs.forEach(function (d, i) {
       var hx = d[0], hy = d[1], spread = d[2];
       var side = spread < 0 ? -1 : 1;
-      // Home stance joint angles (static for L0). Knee bends outward,
-      // ankle counters slightly — consistent "up-and-out" posture.
-      var kneeBend = side * -28;   // further outward
+      // Home stance joint angles. Knee bends outward, ankle counters slightly.
+      // L1: kneeBend 70° gives ~83% ankle extension — a workable flexed
+      // workspace for 2-bone IK (28°/40° left the leg near-singular at 95%+).
+      var kneeBend = side * -70;   // further outward
       var ankleBend = side * 18;   // slight inward for the foot
+      legHome.push({ hx: hx, hy: hy, spread: spread,
+                     kneeBend: kneeBend, ankleBend: ankleBend });
       var leg = el("g", { "class": "leg", id: "leg" + i }, legsG);
       var hip = el("g", {
         "class": "hip",
@@ -202,9 +207,151 @@
       el("circle", { "class": "joint ankle-j", cx: 0, cy: 0, r: 1.4 }, ankle);
       el("line", { "class": "seg foot", x1: 0, y1: 0, x2: 0, y2: -LEG_FL }, ankle);
       el("circle", { "class": "tip", cx: 0, cy: -LEG_FL, r: 1.2 }, ankle);
+      legEls.push({ hip: hip, knee: knee, ankle: ankle });
     });
   }
   buildLegs();
+
+  function setLegPose(i, hipDelta, kneeDelta, ankleDelta) {
+    var h = legHome[i], j = legEls[i];
+    j.hip.setAttribute("transform",
+      "translate(" + h.hx + "," + h.hy + ") rotate(" + (h.spread + hipDelta) + ")");
+    j.knee.setAttribute("transform",
+      "translate(0," + (-LEG_UL) + ") rotate(" + (h.kneeBend + kneeDelta) + ")");
+    j.ankle.setAttribute("transform",
+      "translate(0," + (-LEG_LL) + ") rotate(" + (h.ankleBend + ankleDelta) + ")");
+  }
+  function resetLegPose(i) { setLegPose(i, 0, 0, 0); }
+
+  /* ---------- L1: 2-bone analytic IK + single-leg step prototype ----------
+   * Closed-form, no iteration, no library. Prototype only — manual trigger,
+   * temporary rAF, 7 other legs stay in home stance. */
+  function spiderTransform() {
+    var tr = spider.getAttribute("transform") || "";
+    var m = tr.match(/translate\(\s*([\d.e+-]+)[,\s]+([\d.e+-]+)\s*\)/);
+    var r = tr.match(/rotate\(\s*([\d.e+-]+)\s*\)/);
+    return { x: m ? parseFloat(m[1]) : 600,
+             y: m ? parseFloat(m[2]) : 400,
+             rot: r ? parseFloat(r[1]) : 0 };
+  }
+
+  // Forward kinematics: tip world position for leg i at home pose.
+  function fkTipWorld(i) {
+    var h = legHome[i], st = spiderTransform();
+    var px = h.hx, py = h.hy, ang = h.spread;
+    var rad;
+    rad = ang * Math.PI / 180;
+    px += LEG_UL * Math.sin(rad); py -= LEG_UL * Math.cos(rad);
+    ang += h.kneeBend;
+    rad = ang * Math.PI / 180;
+    px += LEG_LL * Math.sin(rad); py -= LEG_LL * Math.cos(rad);
+    ang += h.ankleBend;
+    rad = ang * Math.PI / 180;
+    px += LEG_FL * Math.sin(rad); py -= LEG_FL * Math.cos(rad);
+    var sr = st.rot * Math.PI / 180;
+    return { x: st.x + px * Math.cos(sr) - py * Math.sin(sr),
+             y: st.y + px * Math.sin(sr) + py * Math.cos(sr) };
+  }
+
+  // 2-bone IK: place the TIP at targetWorld.
+  // Foot keeps home world orientation; ankleTarget = tip - footVec.
+  // Returns {hipDelta, kneeDelta} in degrees (ankle unchanged in L1).
+  // Chirality: left legs -1, right legs +1 (knee outward, verified in test).
+  function solveLegIK(i, targetWorld) {
+    var h = legHome[i], st = spiderTransform();
+    var sr = st.rot * Math.PI / 180;
+    // Hip world position
+    var H = { x: st.x + h.hx * Math.cos(sr) - h.hy * Math.sin(sr),
+              y: st.y + h.hx * Math.sin(sr) + h.hy * Math.cos(sr) };
+    // Foot world direction (home orientation): local -y rotated by total R
+    var R = (st.rot + h.spread + h.kneeBend + h.ankleBend) * Math.PI / 180;
+    var footVec = { x: LEG_FL * Math.sin(R), y: -LEG_FL * Math.cos(R) };
+    var A = { x: targetWorld.x - footVec.x, y: targetWorld.y - footVec.y };
+    // Clamp to reachable annulus
+    var dx = A.x - H.x, dy = A.y - H.y;
+    var d = Math.hypot(dx, dy);
+    var maxD = LEG_UL + LEG_LL - 0.5, minD = Math.abs(LEG_UL - LEG_LL) + 0.5;
+    var cd = Math.max(minD, Math.min(maxD, d));
+    var angAH = Math.atan2(dy, dx);
+    if (cd !== d) {
+      A = { x: H.x + cd * Math.cos(angAH), y: H.y + cd * Math.sin(angAH) };
+    }
+    // Law of cosines
+    var cosA = (LEG_UL * LEG_UL + cd * cd - LEG_LL * LEG_LL) / (2 * LEG_UL * cd);
+    cosA = Math.max(-1, Math.min(1, cosA));
+    var alpha = Math.acos(cosA);
+    var chir = h.spread < 0 ? -1 : 1;
+    var hipWorldAng = angAH + chir * alpha; // math angle, +x axis
+    // Knee world position (for lower angle)
+    var K = { x: H.x + LEG_UL * Math.cos(hipWorldAng),
+              y: H.y + LEG_UL * Math.sin(hipWorldAng) };
+    var lowerWorldAng = Math.atan2(A.y - K.y, A.x - K.x);
+    // Convert to local deltas. Local -y at rotate(R) has math angle R-90.
+    var norm = function (a) { return ((a + 540) % 360) - 180; };
+    var hipDelta = norm(hipWorldAng * 180 / Math.PI + 90 - st.rot - h.spread);
+    var rHip = st.rot + h.spread + hipDelta;
+    var kneeDelta = norm(lowerWorldAng * 180 / Math.PI + 90 - rHip - h.kneeBend);
+    // Keep foot world orientation fixed (compensate ankle for hip+knee rotation)
+    // so the tip lands exactly on target.
+    var ankleDelta = norm(-hipDelta - kneeDelta);
+    return { hipDelta: hipDelta, kneeDelta: kneeDelta, ankleDelta: ankleDelta,
+             _knee: K, _hip: H }; // exposed for tests
+  }
+
+  // L1 prototype: leg0 takes one step forward. Manual trigger only.
+  // Exposed as window.__spider._legStep(). Temporary rAF, stops when done.
+  var protoState = null;
+  function legStepPrototype() {
+    if (protoState) return false; // already running
+    var i = 0;
+    var st = spiderTransform();
+    var sr = st.rot * Math.PI / 180;
+    var fwd = { x: Math.sin(sr), y: -Math.cos(sr) }; // spider forward, world
+    var P0 = fkTipWorld(i);
+    var P1 = { x: P0.x + 8 * fwd.x, y: P0.y + 8 * fwd.y };
+    protoState = { leg: i, P0: P0, P1: P1, t0: performance.now(), dur: 2000 };
+    requestAnimationFrame(protoFrame);
+    return true;
+  }
+  function protoFrame(now) {
+    if (!protoState) return;
+    var ps = protoState;
+    var t = Math.min(1, (now - ps.t0) / ps.dur);
+    var target;
+    // SUPPORT 0-0.2 | LIFT 0.2-0.35 | SWING 0.35-0.65 | PLANT 0.65-0.8 | SUPPORT 0.8-1
+    if (t < 0.2) {
+      target = ps.P0;
+    } else if (t < 0.35) {
+      target = ps.P0; // lift = pause (visual cue via tip opacity below)
+    } else if (t < 0.65) {
+      var k = (t - 0.35) / 0.3;
+      var s = k * k * (3 - 2 * k); // smoothstep
+      target = { x: ps.P0.x + (ps.P1.x - ps.P0.x) * s,
+                 y: ps.P0.y + (ps.P1.y - ps.P0.y) * s };
+    } else {
+      target = ps.P1;
+    }
+    var sol = solveLegIK(ps.leg, target);
+    setLegPose(ps.leg, sol.hipDelta, sol.kneeDelta, sol.ankleDelta);
+    // Lift cue: tip dims while "airborne" (LIFT/SWING phases)
+    var tip = legEls[ps.leg].ankle.children.find(function (c) {
+      return c.getAttribute && c.getAttribute("class") === "tip";
+    });
+    if (tip) tip.setAttribute("opacity", (t >= 0.2 && t < 0.65) ? "0.55" : "1");
+    if (t >= 1) {
+      protoState = null; // rAF stops; leg stays at new position
+      return;
+    }
+    requestAnimationFrame(protoFrame);
+  }
+  function legPrototypeReset() {
+    protoState = null;
+    resetLegPose(0);
+    var tip = legEls[0].ankle.children.find(function (c) {
+      return c.getAttribute && c.getAttribute("class") === "tip";
+    });
+    if (tip) tip.setAttribute("opacity", "1");
+  }
 
   var spider = document.getElementById("spider");
   var spiderTarget = "IDLE"; // last commanded node; spider never moves without state
@@ -1007,6 +1154,12 @@
     _cancelJourney: cancelJourney,
     _spiderNode: function () { return spiderNode; },
     _spiderAngle: function () { return spiderAngle; },
+    _legStep: legStepPrototype,
+    _legReset: legPrototypeReset,
+    _solveLegIK: solveLegIK,
+    _fkTipWorld: fkTipWorld,
+    _legHome: function () { return legHome; },
+    _protoActive: function () { return !!protoState; },
     _journeyActive: function () { return !!journeyState; },
     _connectWs: connectWs };
 
