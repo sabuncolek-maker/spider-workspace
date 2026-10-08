@@ -42,6 +42,19 @@
     return n;
   }
 
+  /* Portrait zoom (~18%): crop the viewBox on narrow screens so the radial
+   * workspace fills the frame. Visual only — no state, no coordinates change. */
+  var svg = document.getElementById("web");
+  function fitView() {
+    var narrow = false;
+    try {
+      narrow = window.matchMedia && window.matchMedia("(max-width: 480px)").matches;
+    } catch (e) { /* keep default */ }
+    svg.setAttribute("viewBox", narrow ? "90 60 1020 680" : "0 0 1200 800");
+  }
+  fitView();
+  if (window.addEventListener) window.addEventListener("resize", fitView);
+
   /* ---------- build web + nodes ---------- */
   var threadsG = document.getElementById("threads");
   var nodesG = document.getElementById("nodes");
@@ -243,6 +256,10 @@
     ro("roTool", toolHtml);
     ro("roLatest", esc(ex.latest_action || ex.latest_result_preview || "—"));
 
+    // BRIDGE OBSERVER: current activity comes from the bridge itself (db).
+    // Explains why STEP and spider position may differ from the readout.
+    document.getElementById("bridgeNote").hidden = !isSystemTool(ex.current_tool);
+
     // activity feed (latest 6)
     var list = document.getElementById("feedList");
     list.innerHTML = "";
@@ -277,7 +294,8 @@
     var stale = ageMs > STALE_MS;
     badge.textContent = stale ? "STALE SNAPSHOT" : "LIVE SNAPSHOT";
     badge.className = stale ? "stale" : "live";
-    meta.textContent = "updated " + fmtTime(state.updated_at) + " · age " + ageS + "s";
+    meta.textContent = "updated " + fmtTime(state.updated_at) + " · age " + ageS + "s" +
+      (stale ? " · last known position" : "");
   }
 
   var lastState = null;
@@ -300,7 +318,8 @@
 
   // expose for tests (node --check friendly, no-ops in browser)
   window.__spider = { resolveTarget: resolveTarget, toolToNode: toolToNode,
-    workNodeFromActivity: workNodeFromActivity, POS: POS, STALE_MS: STALE_MS };
+    workNodeFromActivity: workNodeFromActivity, POS: POS, STALE_MS: STALE_MS,
+    fitView: fitView };
 
   poll();
   setInterval(poll, POLL_MS);

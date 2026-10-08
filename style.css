@@ -90,21 +90,31 @@ body {
   letter-spacing: 0.12em;
 }
 
-#snapline { margin-top: 14px; display: flex; align-items: center; gap: 10px; }
+#snapline { margin-top: 14px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 #snapBadge {
   font-family: var(--mono);
-  font-size: 10px;
-  letter-spacing: 0.22em;
-  padding: 3px 8px;
+  font-size: 9px;
+  letter-spacing: 0.16em;
+  padding: 2px 7px;
   border: 1px solid var(--accent-soft);
   border-radius: 3px;
   color: var(--accent);
+  opacity: 0.85;
 }
 #snapBadge.stale {
   color: var(--error);
   border-color: rgba(217, 106, 90, 0.4);
 }
 #snapMeta { font-family: var(--mono); font-size: 10px; color: var(--dim); }
+
+#bridgeNote {
+  margin-top: 8px;
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  color: var(--accent);
+  opacity: 0.75;
+}
 
 #note {
   margin-top: 8px;
@@ -138,7 +148,7 @@ body {
   gap: 8px;
   padding: 3px 0;
   border-top: 1px solid rgba(255, 255, 255, 0.04);
-  color: var(--dim);
+  color: #a7adb8;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -261,6 +271,21 @@ g.node.dim.dashed .node-ring { stroke-dasharray: 4 5; }
 
 /* Android phone portrait */
 @media (max-width: 480px) {
+  /* spider ~1.65x: scale inner artwork only, translate on #spider untouched */
+  #spiderBody, #spiderHalo {
+    transform: scale(1.65);
+    transform-box: fill-box;
+    transform-origin: center;
+  }
+  /* nodes slightly larger + brighter labels, still dark premium */
+  g.node .node-ring {
+    transform: scale(1.2);
+    transform-box: fill-box;
+    transform-origin: center;
+  }
+  .node-label { font-size: 14.5px; fill: #c8cdd6; }
+  #hubLabel { font-size: 11px; fill: #c8cdd6; }
+
   #readout {
     top: 12px; left: 12px; right: 12px;
     max-width: none;
@@ -275,7 +300,23 @@ g.node.dim.dashed .node-ring { stroke-dasharray: 4 5; }
   #readout dl > div { padding: 1px 0; }
   #readout dd { font-size: 11px; }
   #snapline { margin-top: 8px; }
+  #bridgeNote { font-size: 8.5px; }
   #note { display: none; }
-  #feed { display: none; }
+
+  /* compact feed: 3 latest items, bottom band (graph sits above it) */
+  #feed {
+    display: block;
+    left: 12px; right: 12px; bottom: 10px;
+    width: auto;
+    max-height: none;
+    font-size: 10px;
+    background: rgba(11, 13, 17, 0.55);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 6px;
+    padding: 8px 10px;
+  }
+  .feed-title { margin-bottom: 4px; font-size: 9px; }
+  #feedList li:nth-child(n+4) { display: none; }
+  #feedList li { padding: 2px 0; }
   #offline { font-size: 10px; padding: 10px 14px; max-width: 86vw; text-align: center; }
 }
