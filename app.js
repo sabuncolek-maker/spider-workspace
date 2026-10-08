@@ -87,7 +87,7 @@
    * travel paths: spokes (hub<->node, the lines already drawn) and spiral
    * arcs (adjacent ring nodes, following the faint spiral circle).
    * Phase 1 is infrastructure only: routePath() is built and tested here,
-   * but moveSpider() still uses the old straight-line transition.
+   * and Phase 2 wires it to the rAF path-following driver below.
    * Nothing moves randomly; every leg lies on a visible web path. */
   var RING_ORDER = ["TASK", "SEARCH", "COLLECT", "ANALYZE", "CONNECT",
                     "VERIFY", "PROCESS", "RESULT", "COMPLETE"];
@@ -191,11 +191,12 @@
   buildLegs();
 
   var spider = document.getElementById("spider");
-  var spiderTarget = "IDLE"; // last resolved node; spider never moves without state
+  var spiderTarget = "IDLE"; // last commanded node; spider never moves without state
+  var spiderNode = "IDLE";   // last node where a journey actually completed
   var ripplesG = document.getElementById("ripples");
 
   /* Arrival ripple: purely state-driven visual feedback.
-   * Fires only inside moveSpider(), i.e. only when state actually changed. */
+   * Fires only inside travelToNode(), i.e. only when state actually changed. */
   function ripple(x, y, hot) {
     var c = el("circle", {
       cx: x, cy: y, r: 26,
@@ -206,17 +207,149 @@
     }, 1600);
   }
 
-  function moveSpider(node) {
+  /* ---------- rAF path-following driver (Design B, Phase 2) ----------
+   * Replaces the CSS straight-line transition. The spider follows the
+   * visible web paths from routePath(). Driven ONLY by the visual queue
+   * and snapshot retargets — no rAF runs when idle, nothing random.
+   * Journeys fill the 1.2s visual slot: single leg = 1200ms;
+   * via-hub = 550ms + 100ms hub pause + 550ms. */
+  var LEG_MS = 550, HUB_PAUSE_MS = 100;
+  var journeyState = null; // {cancelled, rafId} while a journey is in flight
+
+  function easeInOutCubic(t) {
+    return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+  }
+
+  function spiderSetXY(x, y) {
+    spider.setAttribute("transform", "translate(" + x + "," + y + ")");
+  }
+
+  function spiderXY() {
+    var tr = spider.getAttribute("transform") || "";
+    var m = tr.match(/translate\(\s*([\d.e+-]+)[,\s]+([\d.e+-]+)\s*\)/);
+    if (m) return { x: parseFloat(m[1]), y: parseFloat(m[2]) };
+    var p = POS[spiderNode] || POS.IDLE;
+    return { x: p.x, y: p.y };
+  }
+
+  // Explicit cancellation: the spider freezes where it is; it never
+  // drifts to a stale target. The next travelLegs() blends from here.
+  function cancelJourney() {
+    if (journeyState) {
+      journeyState.cancelled = true;
+      try {
+        if (journeyState.rafId) cancelAnimationFrame(journeyState.rafId);
+      } catch (e) { /* harness without rAF */ }
+      journeyState = null;
+    }
+  }
+
+  // Travel routePath(fromNode,toNode) within totalMs. done(true) on full
+  // completion (spiderNode advances); never resolves if cancelled.
+  // The journey clock starts at call time and legs stay on schedule
+  // (legStart advances by plan, not by frame time), so total duration is
+  // exact and never overruns the queue slot.
+  // If the spider isn't exactly at the path start (cancelled previous
+  // journey), the opening blends from its visual position onto the path —
+  // blend duration scales with the offset so corrections stay smooth.
+  function travelLegs(fromNode, toNode, totalMs, done) {
+    cancelJourney();
+    var legs = routePath(fromNode, toNode);
+    if (!legs.length) { if (done) done(true); return; }
+    var plan = [];
+    if (legs.length === 1) {
+      plan.push({ leg: legs[0], dur: totalMs });
+    } else {
+      plan.push({ leg: legs[0], dur: LEG_MS });
+      plan.push({ leg: null, dur: HUB_PAUSE_MS }); // dwell at hub
+      plan.push({ leg: legs[1], dur: totalMs - LEG_MS - HUB_PAUSE_MS });
+    }
+    var state = { cancelled: false, rafId: 0 };
+    journeyState = state;
+    var startXY = spiderXY();
+    var t0 = performance.now();
+    var legIdx = -1, legStart = t0, legLen = 0, legPath = null, legReverse = false;
+    var blendMs = 0, blendFrom = null, blendTo = null;
+
+    function setupLeg(i) {
+      legIdx = i;
+      var item = plan[i];
+      if (!item.leg) { legPath = null; return; } // hub pause: hold position
+      legPath = item.leg.path;
+      legReverse = !!item.leg.reverse;
+      try { legLen = legPath.getTotalLength(); } catch (e) { legLen = 0; }
+      if (i === 0 && legPath && legLen > 0) {
+        var p0 = null;
+        try { p0 = legPath.getPointAtLength(legReverse ? legLen : 0); }
+        catch (e) { /* hold */ }
+        if (p0) {
+          var off = Math.hypot(p0.x - startXY.x, p0.y - startXY.y);
+          if (off > 0.5) {
+            blendFrom = { x: startXY.x, y: startXY.y };
+            blendTo = { x: p0.x, y: p0.y };
+            blendMs = Math.min(400, Math.max(120, off * 1.5));
+          }
+        }
+      }
+    }
+
+    function frame(now) {
+      if (state.cancelled) return;
+      if (legIdx < 0) setupLeg(0);
+      var item = plan[legIdx];
+      var t = Math.min(1, (now - legStart) / item.dur);
+      if (legPath && legLen > 0) {
+        var e = easeInOutCubic(t);
+        var dist = legReverse ? legLen * (1 - e) : legLen * e;
+        var pt = null;
+        try { pt = legPath.getPointAtLength(dist); } catch (err) { /* hold */ }
+        if (pt) {
+          if (blendMs > 0 && legIdx === 0) {
+            var bt = Math.min(1, (now - t0) / blendMs);
+            var be = bt * bt * (3 - 2 * bt);
+            spiderSetXY(blendFrom.x + (pt.x - blendFrom.x) * be,
+                        blendFrom.y + (pt.y - blendFrom.y) * be);
+            if (bt >= 1) blendMs = 0;
+          } else {
+            spiderSetXY(pt.x, pt.y);
+          }
+        }
+      }
+      if (t >= 1) {
+        if (legIdx + 1 >= plan.length) {
+          journeyState = null;
+          if (done) done(true);
+          return;
+        }
+        legStart += item.dur;
+        setupLeg(legIdx + 1);
+      }
+      state.rafId = requestAnimationFrame(frame);
+    }
+    state.rafId = requestAnimationFrame(frame);
+  }
+
+  // Shared entry for queue items and snapshot retargets.
+  // Always cancels any in-flight journey first (explicit — even when the
+  // target equals the last completed node, a stale in-flight journey must
+  // not be allowed to settle), then travels the web paths to the new one.
+  function travelToNode(node) {
     if (!POS[node]) node = "UNKNOWN";
-    var changed = (node !== spiderTarget);
+    cancelJourney();
+    var from = spiderNode;
     spiderTarget = node;
     var p = POS[node];
-    spider.setAttribute("transform", "translate(" + p.x + "," + p.y + ")");
     spider.setAttribute("opacity", "1");
-    if (changed) {
+    if (from !== node) {
       ripple(p.x, p.y, node === "ERROR");
       spider.setAttribute("class", "arrived");
       setTimeout(function () { spider.setAttribute("class", ""); }, 1200);
+      // Journey fits INSIDE the 1.2s queue slot with a 50ms safety margin
+      // (1150ms), so the queue's advance timer never cancels a journey just
+      // before completion. Single leg = 1150ms; via-hub = 550 + 100 + 500.
+      travelLegs(from, node, VISUAL_MIN_MS - 50, function (completed) {
+        if (completed) spiderNode = node;
+      });
     }
   }
 
@@ -358,8 +491,10 @@
 
     paintNodes(state, resolveTarget(state, spiderTarget));
     var target = resolveTarget(state, spiderTarget);
-    if (target !== spiderTarget) moveSpider(target);
-    else if (spider.getAttribute("opacity") === "0") moveSpider(target);
+    // Explicit retarget: cancel any in-flight journey so the spider never
+    // settles on a stale target, then travel the web paths to the new one.
+    if (target !== spiderTarget) travelToNode(target);
+    else if (spider.getAttribute("opacity") === "0") travelToNode(target);
   }
 
   function renderAge(state) {
@@ -570,10 +705,15 @@
     queueBusy = true;
     playingItem = item;
     var label = item.node || "UNKNOWN";
+    // Every queued item travels (started tool events, failed tools -> ERROR,
+    // task completions -> COMPLETE). Successful TOOL_COMPLETED never enters
+    // the queue at all (markQueuedTool only), so it can never move the spider.
     // same node twice: no move out-and-back; still occupies its 1.2s slot
     // and is recorded in history/readout like every other event.
+    // travelToNode() drives the web-path journey (rAF); the queue's 1.2s
+    // timer and the journey run in parallel and both last one slot.
     if (item.node && POS[item.node] && item.node !== spiderTarget) {
-      moveSpider(item.node);
+      travelToNode(item.node);
     }
     setRo("roTool", esc(item.tool || "?") + statusTag(item.status));
     setRo("roStep", esc(label));
@@ -738,6 +878,10 @@
     _queueBusy: function () { return queueBusy; },
     _eventHistory: function () { return eventHistory.slice(); },
     _routePath: routePath,
+    _travelToNode: travelToNode,
+    _cancelJourney: cancelJourney,
+    _spiderNode: function () { return spiderNode; },
+    _journeyActive: function () { return !!journeyState; },
     _connectWs: connectWs };
 
   poll();
