@@ -242,6 +242,14 @@ g.node.dim.dashed .node-ring { stroke-dasharray: 4 5; }
 #spiderHalo { transition: opacity 0.9s ease; opacity: 0.55; }
 #spider.arrived #spiderHalo { opacity: 1; }
 
+/* L0 articulated legs: depth via brightness (upper=nearest/top, foot=tip) */
+#legs .seg { fill: none; stroke-linecap: round; }
+#legs .upper { stroke: #e8e4d8; stroke-width: 1.8; }
+#legs .lower { stroke: #b9bfc9; stroke-width: 1.4; }
+#legs .foot  { stroke: #d9a441; stroke-width: 1.2; }
+#legs .joint { fill: #d9a441; stroke: none; }
+#legs .tip   { fill: #d9a441; stroke: none; }
+
 /* arrival ripple: fired only on real state-driven moves */
 .ripple {
   fill: none;

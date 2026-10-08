@@ -25,10 +25,8 @@
     <g id="spider" opacity="0">
       <circle id="spiderHalo" r="34" fill="url(#halo)"/>
       <g id="spiderBody" stroke="#e8e4d8" stroke-width="1.6" fill="none" stroke-linecap="round">
-        <!-- legs: 4 per side, 2-segment, with joint dots -->
-        <g id="legsL"></g>
-        <g id="legsR"></g>
-        <g id="joints" fill="#d9a441" stroke="none"></g>
+        <!-- L0: 8 articulated legs (hip->upper->knee->lower->ankle->foot->tip), built by JS -->
+        <g id="legs"></g>
         <!-- abdomen: segmented plates -->
         <ellipse cx="0" cy="4" rx="7" ry="11" fill="#14161b" stroke="#e8e4d8"/>
         <line x1="-6.4" y1="1" x2="6.4" y2="1" stroke-width="1"/>

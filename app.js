@@ -163,29 +163,45 @@
             resolveLeg("spoke", "IDLE", to)];
   }
 
-  /* ---------- spider legs (geometric, minimal) ---------- */
+  /* ---------- spider legs: articulated 3-segment (L0 anatomy) ----------
+   * 8 legs, each: hip -> upper(26) -> knee -> lower(30) -> ankle -> foot(10) -> tip.
+   * Nested <g> with transform-origin at each joint, ready for FK/IK in L1.
+   * L0 is STATIC home stance only — no animation, no IK, no gait. */
+  var LEG_UL = 26, LEG_LL = 30, LEG_FL = 10;
   function buildLegs() {
-    var L = document.getElementById("legsL");
-    var Rg = document.getElementById("legsR");
-    // 4 legs per side; each: hip -> knee -> foot
-    var hips = [[-6, -6], [-7, -1], [-7, 4], [-6, 9]];
-    var joints = document.getElementById("joints");
-    hips.forEach(function (h, i) {
-      var spread = 14 + i * 7;
-      var kneeL = [h[0] - spread * 0.55, h[1] - 6 - i * 2];
-      var footL = [h[0] - spread, h[1] + 10 - i * 3];
-      var kneeR = [-kneeL[0], kneeL[1]];
-      var footR = [-footL[0], footL[1]];
-      el("polyline", {
-        points: h[0] + "," + h[1] + " " + kneeL[0] + "," + kneeL[1] + " " + footL[0] + "," + footL[1],
-        fill: "none"
-      }, L);
-      el("polyline", {
-        points: (-h[0]) + "," + h[1] + " " + kneeR[0] + "," + kneeR[1] + " " + footR[0] + "," + footR[1],
-        fill: "none"
-      }, Rg);
-      el("circle", { cx: kneeL[0], cy: kneeL[1], r: 1.6 }, joints);
-      el("circle", { cx: kneeR[0], cy: kneeR[1], r: 1.6 }, joints);
+    var legsG = document.getElementById("legs");
+    // 8 legs: [hipX, hipY, spreadDeg]. Negative spread = left side.
+    var defs = [
+      [-6, -6, -35], [-7, -1, -70], [-7,  4, -110], [-6,  9, -145], // left 0-3
+      [ 6, -6,  35], [ 7, -1,  70], [ 7,  4,  110], [ 6,  9,  145]  // right 4-7
+    ];
+    defs.forEach(function (d, i) {
+      var hx = d[0], hy = d[1], spread = d[2];
+      var side = spread < 0 ? -1 : 1;
+      // Home stance joint angles (static for L0). Knee bends outward,
+      // ankle counters slightly — consistent "up-and-out" posture.
+      var kneeBend = side * -28;   // further outward
+      var ankleBend = side * 18;   // slight inward for the foot
+      var leg = el("g", { "class": "leg", id: "leg" + i }, legsG);
+      var hip = el("g", {
+        "class": "hip",
+        transform: "translate(" + hx + "," + hy + ") rotate(" + spread + ")"
+      }, leg);
+      el("circle", { "class": "joint hip-j", cx: 0, cy: 0, r: 2 }, hip);
+      el("line", { "class": "seg upper", x1: 0, y1: 0, x2: 0, y2: -LEG_UL }, hip);
+      var knee = el("g", {
+        "class": "knee",
+        transform: "translate(0," + (-LEG_UL) + ") rotate(" + kneeBend + ")"
+      }, hip);
+      el("circle", { "class": "joint knee-j", cx: 0, cy: 0, r: 1.8 }, knee);
+      el("line", { "class": "seg lower", x1: 0, y1: 0, x2: 0, y2: -LEG_LL }, knee);
+      var ankle = el("g", {
+        "class": "ankle",
+        transform: "translate(0," + (-LEG_LL) + ") rotate(" + ankleBend + ")"
+      }, knee);
+      el("circle", { "class": "joint ankle-j", cx: 0, cy: 0, r: 1.4 }, ankle);
+      el("line", { "class": "seg foot", x1: 0, y1: 0, x2: 0, y2: -LEG_FL }, ankle);
+      el("circle", { "class": "tip", cx: 0, cy: -LEG_FL, r: 1.2 }, ankle);
     });
   }
   buildLegs();
