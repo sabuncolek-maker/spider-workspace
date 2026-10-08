@@ -1222,12 +1222,43 @@
     "read": "COLLECT", "memory_search": "COLLECT", "memory_get": "COLLECT",
     "exec": "PROCESS", "write": "PROCESS", "edit": "PROCESS",
     "todo.write": "ANALYZE", "subagent.spawn": "ANALYZE",
-    "create_options": "RESULT"
+    "create_options": "RESULT",
+
+    /* Task-management tools are TASK, not UNKNOWN. */
+    "browser.spawn_task": "TASK", "browser.steer_task": "TASK",
+    "browser.peek_task": "TASK", "browser.list_tasks": "TASK",
+    "task.spawn": "TASK", "task.steer": "TASK",
+    "task.peek": "TASK", "task.list": "TASK",
+
+    /* Explicit connection/authentication actions. */
+    "connect": "CONNECT", "browser.connect": "CONNECT",
+    "auth": "CONNECT", "browser.auth": "CONNECT",
+    "login": "CONNECT", "browser.login": "CONNECT",
+    "oauth": "CONNECT", "browser.oauth": "CONNECT",
+    "attach": "CONNECT", "browser.attach": "CONNECT",
+
+    /* Explicit verification/validation actions. */
+    "verify": "VERIFY", "browser.verify": "VERIFY",
+    "validate": "VERIFY", "browser.validate": "VERIFY",
+    "check": "VERIFY", "browser.check": "VERIFY"
   };
+
   function toolToNode(tool) {
     if (!tool) return "UNKNOWN";
     var key = String(tool).toLowerCase();
     if (TOOL_NODE[key]) return TOOL_NODE[key];
+
+    /* Semantic fallbacks for tool names introduced later. */
+    if (/(^|[._-])(spawn|steer|peek|list)_?task($|[._-])/.test(key) ||
+        key.indexOf("task.") === 0) return "TASK";
+    if (key.indexOf("connect") !== -1 || key.indexOf("auth") !== -1 ||
+        key.indexOf("login") !== -1 || key.indexOf("oauth") !== -1 ||
+        key.indexOf("attach") !== -1) return "CONNECT";
+    if (key.indexOf("verify") !== -1 || key.indexOf("validate") !== -1 ||
+        key.indexOf("check") !== -1) return "VERIFY";
+    if (key.indexOf("analy") !== -1 || key.indexOf("reason") !== -1 ||
+        key.indexOf("inspect") !== -1) return "ANALYZE";
+    if (key.indexOf("result") !== -1 || key.indexOf("final") !== -1) return "RESULT";
     if (key.indexOf("search") !== -1) return "SEARCH";
     return "UNKNOWN";
   }
@@ -1603,8 +1634,10 @@
     }
 
     var et = msg.event_type;
-    var node = msg.node;
     var tool = msg.tool;
+    /* If telemetry arrives without a useful node (or explicitly UNKNOWN),
+     * recover a semantic node from the tool name on the client. */
+    var node = (msg.node && msg.node !== "UNKNOWN") ? msg.node : toolToNode(tool);
     // defense in depth: the bridge filters db, but never let a system
     // tool move the spider even if one ever arrived
     var isSystem = tool === "db" || tool === "muse.db";
