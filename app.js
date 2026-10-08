@@ -82,6 +82,87 @@
     nodeEls[name] = g;
   });
 
+  /* ---------- route graph (Design B, Phase 1) ----------
+   * Pure, deterministic routing over the visible web. The spider's future
+   * travel paths: spokes (hub<->node, the lines already drawn) and spiral
+   * arcs (adjacent ring nodes, following the faint spiral circle).
+   * Phase 1 is infrastructure only: routePath() is built and tested here,
+   * but moveSpider() still uses the old straight-line transition.
+   * Nothing moves randomly; every leg lies on a visible web path. */
+  var RING_ORDER = ["TASK", "SEARCH", "COLLECT", "ANALYZE", "CONNECT",
+                    "VERIFY", "PROCESS", "RESULT", "COMPLETE"];
+
+  function ringIndex(node) { return RING_ORDER.indexOf(node); }
+
+  function isAdjacentRing(a, b) {
+    var ia = ringIndex(a), ib = ringIndex(b);
+    if (ia < 0 || ib < 0) return false;
+    var d = Math.abs(ia - ib);
+    return d === 1 || d === RING_ORDER.length - 1;
+  }
+
+  // visible spiral (very subtle): the web's capture spiral through the ring
+  el("circle", { cx: CX, cy: CY, r: R, "class": "spiral" }, threadsG);
+
+  // invisible route paths (getPointAtLength-ready). visibility:hidden keeps
+  // getPointAtLength working in all browsers (unlike display:none).
+  var routesG = el("g", { id: "routes" }, svg);
+  var spokePaths = {}; // node -> path drawn hub->node
+  var arcPaths = {};   // "A>B" in ring order -> circular arc A->B
+
+  Object.keys(POS).forEach(function (name) {
+    if (name === "IDLE") return;
+    var p = POS[name];
+    spokePaths[name] = el("path", {
+      d: "M " + CX + " " + CY + " L " + p.x + " " + p.y,
+      "class": "route-path", "data-route": "spoke:" + name
+    }, routesG);
+  });
+
+  (function buildArcs() {
+    for (var i = 0; i < RING_ORDER.length; i++) {
+      var a = RING_ORDER[i], b = RING_ORDER[(i + 1) % RING_ORDER.length];
+      var pa = POS[a], pb = POS[b];
+      // circular arc along the ring; increasing angle = clockwise on screen
+      // (y down), so sweep-flag 1.
+      arcPaths[a + ">" + b] = el("path", {
+        d: "M " + pa.x + " " + pa.y +
+           " A " + R + " " + R + " 0 0 1 " + pb.x + " " + pb.y,
+        "class": "route-path", "data-route": "arc:" + a + ">" + b
+      }, routesG);
+    }
+  })();
+
+  // Resolve one leg to a samplable path. Spokes are drawn hub->node;
+  // arcs are drawn A->B in ring order; reverse flips travel direction.
+  function resolveLeg(kind, from, to) {
+    if (kind === "spoke") {
+      var node = from === "IDLE" ? to : from;
+      return { kind: kind, from: from, to: to,
+               path: spokePaths[node], reverse: from !== "IDLE" };
+    }
+    var ia = ringIndex(from), ib = ringIndex(to);
+    var forward = (ia + 1) % RING_ORDER.length === ib;
+    var key = forward ? from + ">" + to : to + ">" + from;
+    return { kind: kind, from: from, to: to,
+             path: arcPaths[key], reverse: !forward };
+  }
+
+  // Pure & deterministic: same (from, to) -> same legs, every time.
+  // [] = no travel (same node or invalid). One arc for adjacent ring
+  // nodes, one spoke to/from the hub, otherwise two spokes via the hub.
+  function routePath(from, to) {
+    if (!from || !to || !POS[from] || !POS[to] || from === to) return [];
+    if (from === "IDLE" || to === "IDLE") {
+      return [resolveLeg("spoke", from, to)];
+    }
+    if (isAdjacentRing(from, to)) {
+      return [resolveLeg("arc", from, to)];
+    }
+    return [resolveLeg("spoke", from, "IDLE"),
+            resolveLeg("spoke", "IDLE", to)];
+  }
+
   /* ---------- spider legs (geometric, minimal) ---------- */
   function buildLegs() {
     var L = document.getElementById("legsL");
@@ -656,6 +737,7 @@
     _queueLen: function () { return visualQueue.length; },
     _queueBusy: function () { return queueBusy; },
     _eventHistory: function () { return eventHistory.slice(); },
+    _routePath: routePath,
     _connectWs: connectWs };
 
   poll();
