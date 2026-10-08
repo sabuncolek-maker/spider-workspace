@@ -50,7 +50,7 @@
     try {
       narrow = window.matchMedia && window.matchMedia("(max-width: 480px)").matches;
     } catch (e) { /* keep default */ }
-    svg.setAttribute("viewBox", narrow ? "90 60 1020 680" : "0 0 1200 800");
+    svg.setAttribute("viewBox", narrow ? "100 70 1000 660" : "0 0 1200 800");
   }
   fitView();
   if (window.addEventListener) window.addEventListener("resize", fitView);
@@ -220,8 +220,26 @@
     return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
   }
 
+  // Spider orientation (Design B Phase 3 P1): rotation degrees, 0 = facing up
+  // (the artwork's head is at -y). Updated every frame from the path tangent
+  // and lerped so the spider turns smoothly instead of snapping.
+  var spiderAngle = 0;
+
+  function lerpAngle(cur, target, t) {
+    // Shortest-path turn: proportional for small corrections, rate-limited
+    // for large ones so a ~180° reversal (e.g. at the hub) is a smooth turn,
+    // never a sudden snap.
+    var diff = ((target - cur + 540) % 360) - 180;
+    var step = diff * t;
+    var maxStep = 10; // degrees per frame
+    if (step > maxStep) step = maxStep;
+    if (step < -maxStep) step = -maxStep;
+    return cur + step;
+  }
+
   function spiderSetXY(x, y) {
-    spider.setAttribute("transform", "translate(" + x + "," + y + ")");
+    spider.setAttribute("transform",
+      "translate(" + x + "," + y + ") rotate(" + spiderAngle.toFixed(1) + ")");
   }
 
   function spiderXY() {
@@ -304,6 +322,17 @@
         var pt = null;
         try { pt = legPath.getPointAtLength(dist); } catch (err) { /* hold */ }
         if (pt) {
+          // Face the travel direction: tangent from the actual path, lerped
+          // so turns (including the ~180° at the hub) are smooth, never snap.
+          // Artwork faces up (-y), so rotation = direction angle + 90°.
+          var ahead = legReverse ? dist - 4 : dist + 4;
+          ahead = Math.max(0, Math.min(legLen, ahead));
+          var p2 = null;
+          try { p2 = legPath.getPointAtLength(ahead); } catch (err2) { /* hold */ }
+          if (p2 && (Math.abs(p2.x - pt.x) > 0.01 || Math.abs(p2.y - pt.y) > 0.01)) {
+            var dirDeg = Math.atan2(p2.y - pt.y, p2.x - pt.x) * 180 / Math.PI;
+            spiderAngle = lerpAngle(spiderAngle, dirDeg + 90, 0.18);
+          }
           if (blendMs > 0 && legIdx === 0) {
             var bt = Math.min(1, (now - t0) / blendMs);
             var be = bt * bt * (3 - 2 * bt);
@@ -881,6 +910,7 @@
     _travelToNode: travelToNode,
     _cancelJourney: cancelJourney,
     _spiderNode: function () { return spiderNode; },
+    _spiderAngle: function () { return spiderAngle; },
     _journeyActive: function () { return !!journeyState; },
     _connectWs: connectWs };
 
