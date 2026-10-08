@@ -492,12 +492,17 @@
     ro("roTask", taskLabel);
 
     var ex = state.execution || {};
-    ro("roStep", esc(ex.current_step || "UNKNOWN"));
-    var toolHtml = esc(ex.current_tool || "—");
-    if (isSystemTool(ex.current_tool)) toolHtml += '<span class="sys">SYSTEM</span>';
-    else if (ex.tool_status) toolHtml += ' <span style="color:var(--dim)">[' + esc(ex.tool_status) + "]</span>";
-    ro("roTool", toolHtml);
-    ro("roLatest", esc(ex.latest_action || ex.latest_result_preview || "—"));
+    // Live telemetry owns the panel while active (priority LIVE > SNAPSHOT).
+    // Snapshot only takes over after the hold expires.
+    var liveOwnsPanel = Date.now() < livePanelUntil;
+    if (!liveOwnsPanel) {
+      ro("roStep", esc(ex.current_step || "UNKNOWN"));
+      var toolHtml = esc(ex.current_tool || "—");
+      if (isSystemTool(ex.current_tool)) toolHtml += '<span class="sys">SYSTEM</span>';
+      else if (ex.tool_status) toolHtml += ' <span style="color:var(--dim)">[' + esc(ex.tool_status) + "]</span>";
+      ro("roTool", toolHtml);
+      ro("roLatest", esc(ex.latest_action || ex.latest_result_preview || "—"));
+    }
 
     // BRIDGE OBSERVER: current activity comes from the bridge itself (db).
     // Explains why STEP and spider position may differ from the readout.
@@ -583,9 +588,13 @@
   var WS_URL = qs.get("ws") ||
     "wss://spider-realtime-poc.sabuncolek1508.workers.dev/ws";
   var ws = null;
-  var wsStatus = "CONNECTING"; // LIVE | FALLBACK | CONNECTING
+  // Connection states: CONNECTING (initial) | LIVE (socket open) |
+  // RECONNECTING (closed, retry scheduled) | FALLBACK (max retries, polling only)
+  var wsStatus = "CONNECTING";
   var wsRetryMs = 2000;
   var WS_RETRY_MAX = 60000;
+  var WS_MAX_FAILS = 5; // after this many failed attempts -> FALLBACK
+  var wsFails = 0;
   var reconnectTimer = null;
   var seenEventIds = new Set();
   var maxSeq = -1;
@@ -595,15 +604,17 @@
     var dot = document.getElementById("connDot");
     var txt = document.getElementById("connText");
     if (!dot || !txt) return;
-    var cls = status === "LIVE" ? "on" : status === "CONNECTING" ? "mid" : "";
+    var cls = status === "LIVE" ? "on" : (status === "CONNECTING" || status === "RECONNECTING") ? "mid" : "";
     dot.setAttribute("class", cls);
     txt.setAttribute("class", cls);
     txt.textContent = status;
-    txt.setAttribute("title", status === "LIVE"
-      ? "realtime via WebSocket"
-      : status === "CONNECTING"
-        ? "connecting to realtime channel…"
-        : "realtime unavailable — polling state.json");
+    var titles = {
+      LIVE: "realtime via WebSocket — connected",
+      CONNECTING: "connecting to realtime channel…",
+      RECONNECTING: "connection lost — retrying…",
+      FALLBACK: "realtime unavailable — polling state.json"
+    };
+    txt.setAttribute("title", titles[status] || status);
   }
 
   /* Validate + dedup a realtime envelope, then apply its state.
@@ -644,6 +655,19 @@
   function setRo(id, html) {
     var el = document.getElementById(id);
     if (el) el.innerHTML = html;
+  }
+
+  var livePanelUntil = 0; // live telemetry owns roTool/roStep/roLatest until this time
+  var LIVE_PANEL_HOLD_MS = 60000; // 60s after last live event, snapshot may take over
+
+  // Panel follows LIVE telemetry (priority over snapshot). Called for every
+  // non-system live/replayed event. db/SYSTEM never takes over the panel.
+  function updateLivePanel(tool, node, status, ts) {
+    livePanelUntil = Date.now() + LIVE_PANEL_HOLD_MS;
+    setRo("roTool", esc(tool || "?") + statusTag(status));
+    setRo("roStep", esc(node || "UNKNOWN"));
+    var label = status === "done" ? "DONE" : status === "failed" ? "FAILED" : "STARTED";
+    setRo("roLatest", esc(label + " · " + fmtTime(ts)));
   }
 
   /* ---------- visual event queue (v0.5) ----------
@@ -753,7 +777,9 @@
     }, VISUAL_MIN_MS);
   }
 
-  function handleActionEvent(msg) {
+  // isReplay: bypasses the staleness guard (explicitly requested history),
+  // but dedup by event_id still applies and the clock only moves forward.
+  function handleActionEvent(msg, isReplay) {
     if (!msg || msg.type !== "spider_event" || !msg.event_type || !msg.event_id) {
       return false;
     }
@@ -761,15 +787,18 @@
     var ts = Date.parse(msg.timestamp);
     var seq = typeof msg.seq === "number" && isFinite(msg.seq) ? msg.seq : -1;
     if (isNaN(ts)) return false;
-    if (ts < lastActionTs || (ts === lastActionTs && seq <= lastActionSeq)) {
+    if (!isReplay && (ts < lastActionTs || (ts === lastActionTs && seq <= lastActionSeq))) {
       return false; // stale: never move the spider backwards
     }
     seenActionIds.add(msg.event_id);
     if (seenActionIds.size > 500) {
       seenActionIds = new Set(Array.from(seenActionIds).slice(-200));
     }
-    lastActionTs = ts;
-    lastActionSeq = seq;
+    // Clock only moves forward, even for replay.
+    if (ts > lastActionTs || (ts === lastActionTs && seq > lastActionSeq)) {
+      lastActionTs = ts;
+      lastActionSeq = seq;
+    }
 
     var et = msg.event_type;
     var node = msg.node;
@@ -785,6 +814,7 @@
       visualQueue.push({ node: node, tool: tool, event_id: msg.event_id,
                          ts: ts, status: "started" });
       addEventHistory(ts, node, tool, "STARTED");
+      updateLivePanel(tool, node, "started", msg.timestamp);
       updateQueueIndicator();
       pumpQueue();
       return true;
@@ -794,6 +824,7 @@
       if (tool && !isSystem) {
         markQueuedTool(tool, ok);
         addEventHistory(ts, node, tool, ok ? "DONE" : "FAILED");
+        updateLivePanel(tool, node, ok ? "done" : "failed", msg.timestamp);
         // readout follows the live status of the displayed tool
         if (playingItem && playingItem.tool === tool) {
           setRo("roTool", esc(tool) + statusTag(ok ? "done" : "failed"));
@@ -812,6 +843,7 @@
     }
     if (et === "TASK_STARTED") {
       if (msg.task) {
+        livePanelUntil = Date.now() + LIVE_PANEL_HOLD_MS;
         setRo("roTask", esc(msg.task) + ' <span style="color:var(--dim)">[working]</span>');
       }
       return true;
@@ -843,7 +875,16 @@
     } catch (e) {
       return false;
     }
-    if (msg && msg.type === "spider_event") return handleActionEvent(msg);
+    if (msg && msg.type === "spider_event") return handleActionEvent(msg, false);
+    // Replay: last N events sent by the server when this client connected.
+    // Played through the same FIFO visual queue, in order, with dedup.
+    if (msg && msg.type === "replay" && Array.isArray(msg.events)) {
+      var any = false;
+      for (var i = 0; i < msg.events.length; i++) {
+        if (handleActionEvent(msg.events[i], true)) any = true;
+      }
+      return any;
+    }
     if (msg && msg.type === "spider_state") {
       // reuse the snapshot validator inline (same rules as handleWsMessage)
       return handleWsMessage(data);
@@ -851,8 +892,19 @@
     return false;
   }
 
-  function scheduleReconnect() {
-    setConn("FALLBACK"); // spider keeps last position; polling continues
+  function onWsDown() {
+    wsFails++;
+    if (wsFails >= WS_MAX_FAILS) {
+      setConn("FALLBACK"); // polling continues; retry in background every 60s
+      if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+      reconnectTimer = setTimeout(function () {
+        reconnectTimer = null;
+        wsFails = 0;
+        connectWs();
+      }, 60000);
+      return;
+    }
+    setConn("RECONNECTING");
     if (reconnectTimer) return;
     reconnectTimer = setTimeout(function () {
       reconnectTimer = null;
@@ -866,29 +918,57 @@
       try { ws.close(); } catch (e) {}
       ws = null;
     }
-    setConn("CONNECTING");
+    setConn(wsFails > 0 ? "RECONNECTING" : "CONNECTING");
     var socket;
     try {
       socket = new WebSocket(WS_URL);
     } catch (e) {
-      scheduleReconnect();
+      onWsDown();
       return;
     }
     ws = socket;
+    // If the handshake hangs (neither open nor close), force it down so
+    // the indicator can never get stuck at CONNECTING forever.
+    var hangTimer = setTimeout(function () {
+      if (ws === socket && socket.readyState === 0) {
+        try { socket.close(); } catch (e) {}
+      }
+    }, 10000);
     socket.onopen = function () {
+      clearTimeout(hangTimer);
+      if (ws !== socket) return; // stale socket
+      wsFails = 0;
       wsRetryMs = 2000; // reset backoff on success
       setConn("LIVE");
     };
     socket.onmessage = function (ev) {
+      if (ws !== socket) return;
+      if (wsStatus !== "LIVE") setConn("LIVE"); // correct a desynced indicator
       dispatchRealtimeMessage(ev.data);
     };
     var onDown = function () {
+      clearTimeout(hangTimer);
       if (ws === socket) ws = null;
-      scheduleReconnect(); // never resets the spider; never stops polling
+      onWsDown(); // never resets the spider; never stops polling
     };
     socket.onclose = onDown;
     socket.onerror = onDown;
   }
+
+  // Watchdog: the indicator must reflect the actual socket. Corrects any
+  // desync (e.g. stuck CONNECTING while open, or LIVE while dead).
+  setInterval(function () {
+    if (!ws) {
+      if (wsStatus === "LIVE") onWsDown();
+      return;
+    }
+    if (ws.readyState === 1 && wsStatus !== "LIVE") setConn("LIVE");
+    else if (ws.readyState === 0 && (wsStatus === "LIVE" || wsStatus === "FALLBACK")) {
+      setConn(wsFails > 0 ? "RECONNECTING" : "CONNECTING");
+    } else if (ws.readyState >= 2 && wsStatus === "LIVE") {
+      onWsDown();
+    }
+  }, 5000);
 
   // expose for tests (node --check friendly, no-ops in browser)
   window.__spider = { resolveTarget: resolveTarget, toolToNode: toolToNode,
