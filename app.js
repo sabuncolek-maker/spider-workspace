@@ -265,8 +265,8 @@
    * Idle return: bounded self-terminating rAF (stops when settled).
    * No locomotion change. Respects prefers-reduced-motion. No Math.random(). */
   var w1c_returnRaf = 0;
-  var W1C_PAN = 0.15; // shift 15% towards spider
-  var W1C_ZOOM = 1.08; // 8% zoom in when active
+  var W1C_PAN = 0.28; // shift 28% towards spider (W1-C polish: more visible)
+  var W1C_ZOOM = 1.11; // 11% zoom in when active (W1-C polish: more visible)
 
   function w1c_applyCamera() {
     if (prefersReducedMotion) {
