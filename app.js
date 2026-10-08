@@ -161,38 +161,7 @@
     }
   })();
 
-  // cluster index -> opacity class (depth hierarchy)
-  var AMBIENT_CLUSTER_CLS = ["amb-near", "amb-near", "amb-mid", "amb-far"];
-
-  (function buildAmbient() {
-    var g = document.getElementById("ambient");
-    if (!g) return;
-    var i, n;
-    // ambient edges (behind nodes)
-    for (i = 0; i < AMBIENT_EDGES.length; i++) {
-      var e = AMBIENT_EDGES[i];
-      var a = AMBIENT_NODES[e[0]], b = AMBIENT_NODES[e[1]];
-      el("line", {
-        x1: a[0], y1: a[1], x2: b[0], y2: b[1],
-        "class": "amb-edge " + AMBIENT_CLUSTER_CLS[a[2]],
-        "data-c": a[2]
-      }, g);
-    }
-    // main visual paths (polylines through cluster regions)
-    for (i = 0; i < AMBIENT_PATHS.length; i++) {
-      var pts = AMBIENT_PATHS[i].map(function (p) { return p[0] + "," + p[1]; }).join(" ");
-      el("polyline", { points: pts, "class": "amb-main-path" }, g);
-    }
-    // secondary nodes
-    for (i = 0; i < AMBIENT_NODES.length; i++) {
-      n = AMBIENT_NODES[i];
-      el("circle", {
-        cx: n[0], cy: n[1], r: 3,
-        "class": "amb-node " + AMBIENT_CLUSTER_CLS[n[2]],
-        "data-c": n[2]
-      }, g);
-    }
-  })();
+  /* W3-B cleanup: duplicate legacy ambient renderer removed. */
 
   /* ---------- W1-B: Living Web Response ----------
    * Presentation only. Three additive visual responses, zero locomotion change.
