@@ -353,6 +353,202 @@
     if (tip) tip.setAttribute("opacity", "1");
   }
 
+  /* ---------- L2: 8-leg alternating tetrapod gait ----------
+   * Groups: A=[0,3,5,6], B=[1,2,4,7]. A supports while B steps, then swap.
+   * Driven by actual body velocity; integrated into travelLegs frame loop.
+   * No new permanent rAF. All poses via solveLegIK(). */
+  var GROUP_A = [0, 3, 5, 6], GROUP_B = [1, 2, 4, 7];
+  var STRIDE_LEN = 12, VEL_THRESHOLD = 3, MAX_CADENCE = 2.5;
+  var gait = {
+    active: false, cycle: 0, lastT: 0,
+    prevX: 0, prevY: 0, hasPrev: false,
+    vel: 0, velDir: { x: 0, y: -1 },
+    legs: [], // per-leg: {offset, phase, prevPhase, locked, liftOff, newPlant, cur}
+    settleT: -1 // >=0 while settling back to home
+  };
+  for (var gi = 0; gi < 8; gi++) {
+    var isA = GROUP_A.indexOf(gi) >= 0;
+    var off = isA ? 0 : 0.5;
+    gait.legs.push({ offset: off, phase: off, prevPhase: off,
+                     locked: null, liftOff: null, newPlant: null,
+                     cur: { hipD: 0, kneeD: 0, ankleD: 0 } });
+  }
+
+  var contactsG = null;
+  function ensureContacts() {
+    if (contactsG) return true;
+    try {
+      var svg = document.querySelector("svg");
+      var spiderEl = document.getElementById("spider");
+      if (!svg || !spiderEl) return false;
+      contactsG = document.createElementNS("http://www.w3.org/2000/svg", "g");
+      contactsG.setAttribute("id", "gaitContacts");
+      for (var i = 0; i < 8; i++) {
+        var c = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+        c.setAttribute("r", "2.5");
+        c.setAttribute("fill", "#d9a441");
+        c.setAttribute("opacity", "0");
+        contactsG.appendChild(c);
+      }
+      // Insert before spider so contacts are under it
+      svg.insertBefore(contactsG, spiderEl);
+      return true;
+    } catch (e) { return false; }
+  }
+
+  function showContact(i, x, y) {
+    if (!ensureContacts()) return;
+    var c = contactsG.children[i];
+    if (!c) return;
+    c.setAttribute("cx", x); c.setAttribute("cy", y);
+    c.setAttribute("opacity", "0.9");
+    // Fade out over 300ms via transition
+    try { c.style.transition = "opacity 0.3s"; } catch (e) {}
+    setTimeout(function () { try { c.setAttribute("opacity", "0"); } catch (e) {} }, 50);
+  }
+
+  function gaitPlantTarget(i) {
+    var neutral = fkTipWorld(i);
+    return {
+      x: neutral.x + gait.velDir.x * STRIDE_LEN * 0.5,
+      y: neutral.y + gait.velDir.y * STRIDE_LEN * 0.5
+    };
+  }
+
+  function updateGaitLeg(i, dt) {
+    var L = gait.legs[i];
+    var prevPhase = L.phase;
+    L.prevPhase = prevPhase;
+    // Advance phase
+    var cadence = Math.min(MAX_CADENCE, gait.vel / STRIDE_LEN);
+    L.phase = (L.phase + dt * cadence) % 1.0;
+    var phase = L.phase;
+    var target;
+
+    if (phase < 0.6) {
+      // SUPPORT: foot locked in world
+      if (!L.locked) L.locked = fkTipWorld(i);
+      // On wrap (phase < prevPhase), lock the new plant
+      if (phase < prevPhase && L.newPlant) L.locked = L.newPlant;
+      target = L.locked;
+      setTipOpacity(i, "1");
+    } else if (phase < 0.7) {
+      // LIFT
+      target = L.locked || fkTipWorld(i);
+      setTipOpacity(i, "0.55");
+    } else if (phase < 0.9) {
+      // SWING
+      if (prevPhase < 0.7) {
+        L.liftOff = L.locked ? { x: L.locked.x, y: L.locked.y } : fkTipWorld(i);
+        L.newPlant = gaitPlantTarget(i);
+      }
+      var k = (phase - 0.7) / 0.2;
+      var s = k * k * (3 - 2 * k);
+      target = {
+        x: L.liftOff.x + (L.newPlant.x - L.liftOff.x) * s,
+        y: L.liftOff.y + (L.newPlant.y - L.liftOff.y) * s
+      };
+      setTipOpacity(i, "0.55");
+    } else {
+      // PLANT
+      target = L.newPlant || L.locked || fkTipWorld(i);
+      if (prevPhase < 0.9) showContact(i, target.x, target.y);
+      setTipOpacity(i, "1");
+    }
+
+    var sol = solveLegIK(i, target);
+    L.cur = { hipD: sol.hipDelta, kneeD: sol.kneeDelta, ankleD: sol.ankleDelta };
+    setLegPose(i, sol.hipDelta, sol.kneeDelta, sol.ankleDelta);
+  }
+
+  function setTipOpacity(i, v) {
+    var ankle = legEls[i].ankle;
+    for (var j = 0; j < ankle.children.length; j++) {
+      var c = ankle.children[j];
+      if (c.getAttribute && c.getAttribute("class") === "tip") {
+        c.setAttribute("opacity", v);
+        break;
+      }
+    }
+  }
+
+  function updateGait(now, x, y) {
+    // Velocity from position delta
+    var dt = 0.016;
+    if (gait.hasPrev) {
+      dt = Math.max(0.001, (now - gait.lastT) / 1000);
+      var dx = x - gait.prevX, dy = y - gait.prevY;
+      var dist = Math.hypot(dx, dy);
+      gait.vel = dist / dt;
+      if (dist > 0.01) gait.velDir = { x: dx / dist, y: dy / dist };
+    }
+    gait.prevX = x; gait.prevY = y;
+    gait.lastT = now; gait.hasPrev = true;
+
+    if (gait.vel > VEL_THRESHOLD) {
+      // Active gait
+      if (gait.settleT >= 0) gait.settleT = -1; // cancel settle
+      gait.active = true;
+      // Body motion: bob ±1.5, sway ±1, pitch ±1°
+      var cyc = gait.cycle;
+      var bob = 1.5 * Math.sin(cyc * Math.PI * 4);
+      var sway = 1.0 * Math.sin(cyc * Math.PI * 2);
+      var pitch = 1.0 * Math.sin(cyc * Math.PI * 2 + Math.PI / 2);
+      // Apply to spider transform
+      var tr = spider.getAttribute("transform") || "";
+      var m = tr.match(/translate\(\s*([\d.e+-]+)[,\s]+([\d.e+-]+)\s*\)\s*rotate\(\s*([\d.e+-]+)\s*\)/);
+      if (m) {
+        var bx = parseFloat(m[1]) + sway, by = parseFloat(m[2]) + bob;
+        var br = parseFloat(m[3]) + pitch;
+        spider.setAttribute("transform",
+          "translate(" + bx.toFixed(1) + "," + by.toFixed(1) + ") rotate(" + br.toFixed(1) + ")");
+      }
+      // Update cycle and legs
+      var cadence = Math.min(MAX_CADENCE, gait.vel / STRIDE_LEN);
+      gait.cycle = (gait.cycle + dt * cadence) % 1.0;
+      for (var i = 0; i < 8; i++) updateGaitLeg(i, dt);
+    } else {
+      // Velocity low: settle back to home
+      if (gait.active) {
+        gait.active = false;
+        gait.settleT = 0;
+      }
+      if (gait.settleT >= 0) {
+        gait.settleT += dt;
+        var k = Math.min(1, gait.settleT / 0.3);
+        var s = k * k * (3 - 2 * k);
+        for (var j = 0; j < 8; j++) {
+          var Lc = gait.legs[j];
+          var hd = Lc.cur.hipD * (1 - s), kd = Lc.cur.kneeD * (1 - s), ad = Lc.cur.ankleD * (1 - s);
+          setLegPose(j, hd, kd, ad);
+          setTipOpacity(j, "1");
+        }
+        if (k >= 1) {
+          gait.settleT = -1;
+          for (var m2 = 0; m2 < 8; m2++) {
+            resetLegPose(m2);
+            gait.legs[m2].locked = null;
+            gait.legs[m2].phase = gait.legs[m2].offset; // reset to group offset
+          }
+        }
+      }
+    }
+  }
+
+  function resetGait() {
+    gait.active = false;
+    gait.cycle = 0;
+    gait.hasPrev = false;
+    gait.settleT = -1;
+    gait.vel = 0;
+    for (var i = 0; i < 8; i++) {
+      resetLegPose(i);
+      setTipOpacity(i, "1");
+      gait.legs[i].locked = null;
+      gait.legs[i].phase = gait.legs[i].offset;
+    }
+  }
+
   var spider = document.getElementById("spider");
   var spiderTarget = "IDLE"; // last commanded node; spider never moves without state
   var spiderNode = "IDLE";   // last node where a journey actually completed
@@ -423,6 +619,7 @@
       } catch (e) { /* harness without rAF */ }
       journeyState = null;
     }
+    resetGait(); // L2: settle legs on cancel/retarget (no teleport)
   }
 
   // Travel routePath(fromNode,toNode) within totalMs. done(true) on full
@@ -505,11 +702,18 @@
           } else {
             spiderSetXY(pt.x, pt.y);
           }
+          // L2 gait: update from actual velocity, inside the existing rAF.
+          updateGait(now, pt.x, pt.y);
         }
+      } else {
+        // Hub pause or no path: still update gait (velocity ~0 → settle)
+        var xy = spiderXY();
+        updateGait(now, xy.x, xy.y);
       }
       if (t >= 1) {
         if (legIdx + 1 >= plan.length) {
           journeyState = null;
+          resetGait(); // L2: settle legs on arrival
           if (done) done(true);
           return;
         }
@@ -1160,6 +1364,10 @@
     _fkTipWorld: fkTipWorld,
     _legHome: function () { return legHome; },
     _protoActive: function () { return !!protoState; },
+    _gait: function () { return gait; },
+    _updateGait: updateGait,
+    _resetGait: resetGait,
+    _groups: function () { return { A: GROUP_A, B: GROUP_B }; },
     _journeyActive: function () { return !!journeyState; },
     _connectWs: connectWs };
 
