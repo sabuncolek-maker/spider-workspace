@@ -141,7 +141,8 @@
       var a = AMBIENT_NODES[e[0]], b = AMBIENT_NODES[e[1]];
       el("line", {
         x1: a[0], y1: a[1], x2: b[0], y2: b[1],
-        "class": "amb-edge " + AMBIENT_CLUSTER_CLS[a[2]]
+        "class": "amb-edge " + AMBIENT_CLUSTER_CLS[a[2]],
+        "data-c": a[2]
       }, g);
     }
     // main visual paths (polylines through cluster regions)
@@ -154,10 +155,105 @@
       n = AMBIENT_NODES[i];
       el("circle", {
         cx: n[0], cy: n[1], r: 3,
-        "class": "amb-node " + AMBIENT_CLUSTER_CLS[n[2]]
+        "class": "amb-node " + AMBIENT_CLUSTER_CLS[n[2]],
+        "data-c": n[2]
       }, g);
     }
   })();
+
+  /* ---------- W1-B: Living Web Response ----------
+   * Presentation only. Three additive visual responses, zero locomotion change.
+   * W1-B1: active navigation path glow (clone of actual routePath leg).
+   * W1-B2: nearest ambient cluster brightens on node change.
+   * W1-B3: spider trail via MutationObserver (no rAF, no locomotion hook).
+   * All disabled under prefers-reduced-motion. No Math.random(). */
+  var W1B_NODE_CLUSTER = {
+    TASK: 2, SEARCH: 2, COLLECT: 1, ANALYZE: 1, CONNECT: 1,
+    VERIFY: 3, PROCESS: 3, RESULT: 0, COMPLETE: 0,
+    UNKNOWN: 0, ERROR: 2, IDLE: -1
+  };
+  var w1b_activeOverlays = [];
+  var w1b_activeCluster = -1;
+
+  function w1b_setActivePath(fromNode, toNode) {
+    w1b_clearActivePath();
+    if (prefersReducedMotion) return;
+    var legs = [];
+    try { legs = routePath(fromNode, toNode); } catch (e) { return; }
+    var threads = document.getElementById("threads");
+    if (!threads) return;
+    legs.forEach(function (leg) {
+      if (!leg.path) return;
+      var clone = leg.path.cloneNode(false);
+      clone.removeAttribute("id");
+      clone.setAttribute("class", "w1b-active-path");
+      clone.removeAttribute("data-route");
+      threads.parentNode.insertBefore(clone, threads);
+      w1b_activeOverlays.push(clone);
+    });
+  }
+  function w1b_clearActivePath() {
+    w1b_activeOverlays.forEach(function (n) {
+      if (n.parentNode) n.parentNode.removeChild(n);
+    });
+    w1b_activeOverlays = [];
+  }
+
+  function w1b_clusterResponse(node) {
+    if (prefersReducedMotion) return;
+    var c = W1B_NODE_CLUSTER[node];
+    if (c === undefined) c = -1;
+    if (c === w1b_activeCluster) return;
+    var ambient = document.getElementById("ambient");
+    if (!ambient) return;
+    if (w1b_activeCluster >= 0) {
+      var prev = ambient.querySelectorAll('[data-c="' + w1b_activeCluster + '"]');
+      for (var i = 0; i < prev.length; i++) prev[i].classList.remove("amb-active");
+    }
+    w1b_activeCluster = c;
+    if (c >= 0) {
+      var cur = ambient.querySelectorAll('[data-c="' + c + '"]');
+      for (var j = 0; j < cur.length; j++) cur[j].classList.add("amb-active");
+    }
+  }
+
+  // W1-B3: trail — sample spider XY via MutationObserver, render fading polyline.
+  var w1b_trailPts = [];
+  var w1b_trailEl = null;
+  var w1b_trailFadeTimer = null;
+  var w1b_lastTrailSample = 0;
+  function w1b_renderTrail() {
+    if (w1b_trailEl && w1b_trailEl.parentNode) w1b_trailEl.parentNode.removeChild(w1b_trailEl);
+    w1b_trailEl = null;
+    if (w1b_trailPts.length < 2 || prefersReducedMotion) return;
+    var pts = w1b_trailPts.map(function (p) { return p.x.toFixed(1) + "," + p.y.toFixed(1); }).join(" ");
+    var threads = document.getElementById("threads");
+    if (!threads) return;
+    w1b_trailEl = el("polyline", { points: pts, "class": "w1b-trail" }, threads.parentNode);
+    threads.parentNode.insertBefore(w1b_trailEl, threads);
+  }
+  function w1b_initTrail() {
+    if (prefersReducedMotion) return;
+    var spiderEl = document.getElementById("spider");
+    if (!spiderEl || !window.MutationObserver) return;
+    var obs = new MutationObserver(function () {
+      var now = performance.now();
+      if (now - w1b_lastTrailSample < 120) return; // ~8Hz max
+      w1b_lastTrailSample = now;
+      var xy = spiderXY();
+      var last = w1b_trailPts[w1b_trailPts.length - 1];
+      if (last && Math.hypot(xy.x - last.x, xy.y - last.y) < 2) return; // no movement
+      w1b_trailPts.push({ x: xy.x, y: xy.y });
+      while (w1b_trailPts.length > 16) w1b_trailPts.shift(); // ~2s window
+      w1b_renderTrail();
+      if (w1b_trailFadeTimer) clearTimeout(w1b_trailFadeTimer);
+      w1b_trailFadeTimer = setTimeout(function () {
+        w1b_trailPts = [];
+        w1b_renderTrail();
+      }, 2500);
+    });
+    obs.observe(spiderEl, { attributes: true, attributeFilter: ["transform"] });
+  }
 
   /* ---------- route graph (Design B, Phase 1) ----------
    * Pure, deterministic routing over the visible web. The spider's future
@@ -842,6 +938,7 @@
       } catch (e) { /* harness without rAF */ }
       journeyState = null;
     }
+    w1b_clearActivePath(); // W1-B1: clear on cancel/retarget
     resetGait(); // L2: settle legs on cancel/retarget (no teleport)
   }
 
@@ -995,7 +1092,10 @@
       // Journey fits INSIDE the 1.2s queue slot with a 50ms safety margin
       // (1150ms), so the queue's advance timer never cancels a journey just
       // before completion. Single leg = 1150ms; via-hub = 550 + 100 + 500.
+      w1b_setActivePath(from, node); // W1-B1: highlight actual route
+      w1b_clusterResponse(node); // W1-B2: nearest ambient cluster reacts
       travelLegs(from, node, VISUAL_MIN_MS - 50, function (completed) {
+        w1b_clearActivePath(); // W1-B1: clear on arrival
         if (completed) spiderNode = node;
       });
     }
@@ -1632,4 +1732,5 @@
   setInterval(function () { if (lastState) renderAge(lastState); }, 1000);
   setConn("CONNECTING");
   connectWs();
+  w1b_initTrail(); // W1-B3: spider trail observer
 })();

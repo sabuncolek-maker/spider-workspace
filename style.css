@@ -242,16 +242,35 @@ g.node.dim.dashed .node-ring { stroke-dasharray: 4 5; }
 .amb-mid { opacity: 0.16; }
 .amb-far { opacity: 0.11; }
 .amb-main-path { opacity: 0.25; }
+/* W1-B2: cluster response — localized brightening */
+.amb-node.amb-active { opacity: 0.45; }
+.amb-edge.amb-active { opacity: 0.35; }
+/* W1-B1: active navigation path — subtle energy on actual route */
+.w1b-active-path {
+  fill: none; stroke: #d9a441; stroke-width: 2;
+  opacity: 0.35; pointer-events: none;
+}
+/* W1-B3: spider trail — fading path */
+.w1b-trail {
+  fill: none; stroke: #d9a441; stroke-width: 1.5;
+  opacity: 0.25; pointer-events: none;
+}
 /* Mobile: reduce ambient density so spider stays focal */
 @media (max-width: 480px) {
   .amb-near { opacity: 0.16; }
   .amb-mid { opacity: 0.12; }
   .amb-far { opacity: 0.08; }
   .amb-main-path { opacity: 0.18; }
+  .amb-node.amb-active { opacity: 0.32; }
+  .amb-edge.amb-active { opacity: 0.25; }
+  .w1b-active-path { opacity: 0.28; }
+  .w1b-trail { opacity: 0.2; }
 }
 /* W1-A: static only — no ambient animation, reduced-motion included */
 @media (prefers-reduced-motion: reduce) {
   #ambient { opacity: 1; }
+  .w1b-active-path, .w1b-trail { display: none; }
+  .amb-node.amb-active, .amb-edge.amb-active { opacity: inherit; }
 }
 
 /* Design B Phase 1: capture spiral (very subtle) + invisible route paths */
