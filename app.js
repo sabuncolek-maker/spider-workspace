@@ -387,6 +387,95 @@
     return applyState(msg.state, "ws");
   }
 
+  /* ---------- action telemetry events (v0.3) ----------
+   * Discrete, chronological work steps from the Action Telemetry Bridge.
+   * type="spider_event". Ordering guard: (timestamp, seq, event_id) —
+   * an older event never moves the spider back. Snapshot handler untouched. */
+  var seenActionIds = new Set();
+  var lastActionTs = 0;
+  var lastActionSeq = -1;
+
+  function setRo(id, html) {
+    var el = document.getElementById(id);
+    if (el) el.innerHTML = html;
+  }
+
+  function handleActionEvent(msg) {
+    if (!msg || msg.type !== "spider_event" || !msg.event_type || !msg.event_id) {
+      return false;
+    }
+    if (seenActionIds.has(msg.event_id)) return false; // duplicate
+    var ts = Date.parse(msg.timestamp);
+    var seq = typeof msg.seq === "number" && isFinite(msg.seq) ? msg.seq : -1;
+    if (isNaN(ts)) return false;
+    if (ts < lastActionTs || (ts === lastActionTs && seq <= lastActionSeq)) {
+      return false; // stale: never move the spider backwards
+    }
+    seenActionIds.add(msg.event_id);
+    if (seenActionIds.size > 500) {
+      seenActionIds = new Set(Array.from(seenActionIds).slice(-200));
+    }
+    lastActionTs = ts;
+    lastActionSeq = seq;
+
+    var et = msg.event_type;
+    var node = msg.node;
+    var tool = msg.tool;
+    // defense in depth: the bridge filters db, but never let a system
+    // tool move the spider even if one ever arrived
+    var isSystem = tool === "db" || tool === "muse.db";
+
+    if (et === "TOOL_STARTED") {
+      if (isSystem) return true;
+      if (tool) setRo("roTool", esc(tool) + ' <span style="color:var(--accent)">[started]</span>');
+      if (node) setRo("roStep", esc(node));
+      if (node && POS[node] && node !== spiderTarget) moveSpider(node);
+      return true;
+    }
+    if (et === "TOOL_COMPLETED" || et === "TOOL_FAILED") {
+      var ok = msg.success !== false;
+      if (tool && !isSystem) {
+        setRo("roTool", esc(tool) + (ok
+          ? ' <span style="color:var(--ok)">[done]</span>'
+          : ' <span style="color:var(--error)">[failed]</span>'));
+      }
+      // a REAL tool failure moves the spider to ERROR; completions never
+      // move it (the next TOOL_STARTED positions it)
+      if (!ok && !isSystem && spiderTarget !== "ERROR") moveSpider("ERROR");
+      return true;
+    }
+    if (et === "TASK_STARTED") {
+      if (msg.task) {
+        setRo("roTask", esc(msg.task) + ' <span style="color:var(--dim)">[working]</span>');
+      }
+      return true;
+    }
+    if (et === "TASK_COMPLETED") {
+      if (spiderTarget !== "COMPLETE") moveSpider("COMPLETE");
+      return true;
+    }
+    if (et === "TASK_FAILED") {
+      if (spiderTarget !== "ERROR") moveSpider("ERROR");
+      return true;
+    }
+    return false;
+  }
+
+  function dispatchRealtimeMessage(data) {
+    var msg;
+    try {
+      msg = JSON.parse(data);
+    } catch (e) {
+      return false;
+    }
+    if (msg && msg.type === "spider_event") return handleActionEvent(msg);
+    if (msg && msg.type === "spider_state") {
+      // reuse the snapshot validator inline (same rules as handleWsMessage)
+      return handleWsMessage(data);
+    }
+    return false;
+  }
+
   function scheduleReconnect() {
     setConn("FALLBACK"); // spider keeps last position; polling continues
     if (reconnectTimer) return;
@@ -416,7 +505,7 @@
       setConn("LIVE");
     };
     socket.onmessage = function (ev) {
-      handleWsMessage(ev.data);
+      dispatchRealtimeMessage(ev.data);
     };
     var onDown = function () {
       if (ws === socket) ws = null;
@@ -436,6 +525,8 @@
                target: spiderTarget, lastAppliedAt: lastAppliedAt };
     },
     _handleWsMessage: handleWsMessage,
+    _handleActionEvent: handleActionEvent,
+    _dispatchRealtimeMessage: dispatchRealtimeMessage,
     _applyState: applyState,
     _connectWs: connectWs };
 
