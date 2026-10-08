@@ -569,12 +569,57 @@
     gait.vel = 0;
     gait.hub.active = false;
     gait.hub.steps = [];
+    gait.arrival.active = false;
+    gait.arrival.done = false;
+    gait.arrival.settleT = -1;
     for (var i = 0; i < 8; i++) {
       resetLegPose(i);
       setTipOpacity(i, "1");
       gait.legs[i].locked = null;
       gait.legs[i].phase = gait.legs[i].offset;
     }
+  }
+
+  /* ---------- L5: Arrival + micro-settle ----------
+   * On journey completion: complete in-progress swings synchronously
+   * (to natural positions, not home), lock all feet. No extra rAF frames —
+   * done() fires on time to preserve 1152ms timing. */
+  gait.arrival = { active: false, done: false, settleT: -1 };
+
+  function startArrival() {
+    // Synchronously complete all legs to SUPPORT with world-locked feet.
+    // No teleport: each leg finishes to its natural target, not home.
+    for (var i = 0; i < 8; i++) {
+      var L = gait.legs[i];
+      var target;
+      if (L.phase >= 0.6) {
+        // In LIFT/SWING/PLANT: complete to plant target
+        target = L.newPlant || L.locked || fkTipWorld(i);
+        L.locked = { x: target.x, y: target.y };
+        showContact(i, target.x, target.y);
+      } else {
+        // In SUPPORT: keep locked
+        target = L.locked || fkTipWorld(i);
+        if (!L.locked) L.locked = { x: target.x, y: target.y };
+      }
+      L.phase = L.offset; // reset to group base
+      var sol = solveLegIK(i, target);
+      L.cur = { hipD: sol.hipDelta, kneeD: sol.kneeDelta, ankleD: sol.ankleDelta };
+      setLegPose(i, sol.hipDelta, sol.kneeDelta, sol.ankleDelta);
+      setTipOpacity(i, "1");
+    }
+    gait.active = false;
+    gait.arrival.done = true;
+    // Micro-settle: tiny CSS transition on spider (200ms, decaying)
+    // Applied as a one-time class; no rAF needed.
+    try {
+      spider.style.transition = "transform 0.2s ease-out";
+      setTimeout(function () { try { spider.style.transition = ""; } catch (e) {} }, 250);
+    } catch (e) {}
+  }
+
+  function updateArrival(dt) {
+    // No longer used (synchronous arrival). Kept for API compatibility.
   }
 
   /* ---------- L4: HUB turning mini-steps ----------
@@ -829,8 +874,10 @@
       }
       if (t >= 1) {
         if (legIdx + 1 >= plan.length) {
+          // L5: synchronous arrival — complete swings to natural positions,
+          // then done() on time (preserves 1152ms timing, no extra rAF).
+          startArrival();
           journeyState = null;
-          resetGait(); // L2: settle legs on arrival
           if (done) done(true);
           return;
         }
@@ -1487,6 +1534,8 @@
     _groups: function () { return { A: GROUP_A, B: GROUP_B }; },
     _hubStartTurn: hubStartTurn,
     _hubUpdate: hubUpdate,
+    _startArrival: startArrival,
+    _updateArrival: updateArrival,
     _journeyActive: function () { return !!journeyState; },
     _connectWs: connectWs };
 
