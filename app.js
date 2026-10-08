@@ -358,11 +358,16 @@
    * Driven by actual body velocity; integrated into travelLegs frame loop.
    * No new permanent rAF. All poses via solveLegIK(). */
   var GROUP_A = [0, 3, 5, 6], GROUP_B = [1, 2, 4, 7];
-  var STRIDE_LEN = 12, VEL_THRESHOLD = 3, MAX_CADENCE = 2.5;
+  // L3: dynamic stride and cadence bounds
+  var STRIDE_MIN = 4, STRIDE_MAX = 16; // IK-safe: max reach 55.5, home ~46
+  var CADENCE_MIN = 0.5, CADENCE_MAX = 2.5; // cycles/sec, deterministic
+  var VEL_THRESHOLD = 3;
   var gait = {
     active: false, cycle: 0, lastT: 0,
     prevX: 0, prevY: 0, hasPrev: false,
     vel: 0, velDir: { x: 0, y: -1 },
+    tangentDeg: 0, // L3: explicit path tangent from frame()
+    strideLen: 12, // L3: dynamic
     legs: [], // per-leg: {offset, phase, prevPhase, locked, liftOff, newPlant, cur}
     settleT: -1 // >=0 while settling back to home
   };
@@ -409,18 +414,20 @@
 
   function gaitPlantTarget(i) {
     var neutral = fkTipWorld(i);
+    // L3: use explicit path tangent (handles reverse, arc curvature)
+    var tr = gait.tangentDeg * Math.PI / 180;
+    var tx = Math.cos(tr), ty = Math.sin(tr);
     return {
-      x: neutral.x + gait.velDir.x * STRIDE_LEN * 0.5,
-      y: neutral.y + gait.velDir.y * STRIDE_LEN * 0.5
+      x: neutral.x + tx * gait.strideLen * 0.5,
+      y: neutral.y + ty * gait.strideLen * 0.5
     };
   }
 
-  function updateGaitLeg(i, dt) {
+  function updateGaitLeg(i, dt, cadence) {
     var L = gait.legs[i];
     var prevPhase = L.phase;
     L.prevPhase = prevPhase;
     // Advance phase
-    var cadence = Math.min(MAX_CADENCE, gait.vel / STRIDE_LEN);
     L.phase = (L.phase + dt * cadence) % 1.0;
     var phase = L.phase;
     var target;
@@ -441,6 +448,16 @@
       if (prevPhase < 0.7) {
         L.liftOff = L.locked ? { x: L.locked.x, y: L.locked.y } : fkTipWorld(i);
         L.newPlant = gaitPlantTarget(i);
+        L.swingTangent = gait.tangentDeg;
+      } else {
+        // L3: if tangent changed significantly mid-swing, update target
+        // (prevents stale targets on curving arcs)
+        var tDiff = Math.abs(gait.tangentDeg - L.swingTangent);
+        if (tDiff > 180) tDiff = 360 - tDiff;
+        if (tDiff > 15) {
+          L.newPlant = gaitPlantTarget(i);
+          L.swingTangent = gait.tangentDeg;
+        }
       }
       var k = (phase - 0.7) / 0.2;
       var s = k * k * (3 - 2 * k);
@@ -472,7 +489,7 @@
     }
   }
 
-  function updateGait(now, x, y) {
+  function updateGait(now, x, y, tangentDeg) {
     // Velocity from position delta
     var dt = 0.016;
     if (gait.hasPrev) {
@@ -484,11 +501,21 @@
     }
     gait.prevX = x; gait.prevY = y;
     gait.lastT = now; gait.hasPrev = true;
+    // L3: explicit tangent (from path, handles reverse/arc)
+    if (typeof tangentDeg === "number" && isFinite(tangentDeg)) {
+      gait.tangentDeg = tangentDeg;
+    }
 
     if (gait.vel > VEL_THRESHOLD) {
       // Active gait
       if (gait.settleT >= 0) gait.settleT = -1; // cancel settle
       gait.active = true;
+      // L3: dynamic stride from velocity, clamped to IK-safe range
+      gait.strideLen = Math.max(STRIDE_MIN,
+        Math.min(STRIDE_MAX, gait.vel * 0.12));
+      // L3: cadence from velocity/stride, clamped deterministic
+      var cadence = Math.max(CADENCE_MIN,
+        Math.min(CADENCE_MAX, gait.vel / gait.strideLen));
       // Body motion: bob ±1.5, sway ±1, pitch ±1°
       var cyc = gait.cycle;
       var bob = 1.5 * Math.sin(cyc * Math.PI * 4);
@@ -504,9 +531,8 @@
           "translate(" + bx.toFixed(1) + "," + by.toFixed(1) + ") rotate(" + br.toFixed(1) + ")");
       }
       // Update cycle and legs
-      var cadence = Math.min(MAX_CADENCE, gait.vel / STRIDE_LEN);
       gait.cycle = (gait.cycle + dt * cadence) % 1.0;
-      for (var i = 0; i < 8; i++) updateGaitLeg(i, dt);
+      for (var i = 0; i < 8; i++) updateGaitLeg(i, dt, cadence);
     } else {
       // Velocity low: settle back to home
       if (gait.active) {
@@ -689,8 +715,10 @@
           ahead = Math.max(0, Math.min(legLen, ahead));
           var p2 = null;
           try { p2 = legPath.getPointAtLength(ahead); } catch (err2) { /* hold */ }
+          var tangentDeg = null;
           if (p2 && (Math.abs(p2.x - pt.x) > 0.01 || Math.abs(p2.y - pt.y) > 0.01)) {
             var dirDeg = Math.atan2(p2.y - pt.y, p2.x - pt.x) * 180 / Math.PI;
+            tangentDeg = dirDeg; // L3: explicit path tangent (handles reverse)
             spiderAngle = lerpAngle(spiderAngle, dirDeg + 90, 0.18);
           }
           if (blendMs > 0 && legIdx === 0) {
@@ -702,13 +730,13 @@
           } else {
             spiderSetXY(pt.x, pt.y);
           }
-          // L2 gait: update from actual velocity, inside the existing rAF.
-          updateGait(now, pt.x, pt.y);
+          // L2/L3 gait: update from actual velocity + path tangent.
+          updateGait(now, pt.x, pt.y, tangentDeg);
         }
       } else {
         // Hub pause or no path: still update gait (velocity ~0 → settle)
         var xy = spiderXY();
-        updateGait(now, xy.x, xy.y);
+        updateGait(now, xy.x, xy.y, null);
       }
       if (t >= 1) {
         if (legIdx + 1 >= plan.length) {
