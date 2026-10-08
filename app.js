@@ -567,12 +567,76 @@
     gait.hasPrev = false;
     gait.settleT = -1;
     gait.vel = 0;
+    gait.hub.active = false;
+    gait.hub.steps = [];
     for (var i = 0; i < 8; i++) {
       resetLegPose(i);
       setTipOpacity(i, "1");
       gait.legs[i].locked = null;
       gait.legs[i].phase = gait.legs[i].offset;
     }
+  }
+
+  /* ---------- L4: HUB turning mini-steps ----------
+   * During the 100ms hub pause, proactively reposition 2-3 feet toward
+   * the outgoing direction. No full gait cycle, no teleport. */
+  gait.hub = { active: false, turnAngle: 0, outgoingTangent: 0, steps: [], stepT: 0 };
+
+  function hubStartTurn(incomingDeg, outgoingDeg) {
+    var diff = ((outgoingDeg - incomingDeg + 540) % 360) - 180; // shortest
+    gait.hub.turnAngle = diff;
+    gait.hub.outgoingTangent = outgoingDeg;
+    // Only mini-step if turn is significant
+    if (Math.abs(diff) < 25) return false;
+    // Select 2 legs: front pair (one from each group) — most affected by turn
+    // For larger turns (>90°), add a third leg
+    var legs = [0, 4];
+    if (Math.abs(diff) > 90) legs.push(1);
+    // Mini-step: small nudge in outgoing direction (not full rotation)
+    // Offset proportional to turn, clamped to 15 units max
+    var outRad = outgoingDeg * Math.PI / 180;
+    var outX = Math.cos(outRad), outY = Math.sin(outRad);
+    var nudge = Math.min(15, Math.abs(diff) * 0.15);
+    gait.hub.steps = [];
+    legs.forEach(function (i) {
+      var L = gait.legs[i];
+      var from = L.locked ? { x: L.locked.x, y: L.locked.y } : fkTipWorld(i);
+      var to = { x: from.x + outX * nudge, y: from.y + outY * nudge };
+      gait.hub.steps.push({ leg: i, from: from, to: to, done: false });
+    });
+    gait.hub.active = true;
+    gait.hub.stepT = 0;
+    return true;
+  }
+
+  function hubUpdate(dt) {
+    if (!gait.hub.active) return;
+    gait.hub.stepT += dt;
+    var t = Math.min(1, gait.hub.stepT / 0.08); // 80ms for mini-steps
+    var s = t * t * (3 - 2 * t); // smoothstep
+    var allDone = true;
+    gait.hub.steps.forEach(function (step) {
+      if (step.done) return;
+      var target;
+      if (t < 1) {
+        target = {
+          x: step.from.x + (step.to.x - step.from.x) * s,
+          y: step.from.y + (step.to.y - step.from.y) * s
+        };
+        allDone = false;
+      } else {
+        target = step.to;
+        step.done = true;
+        // Lock the new position
+        gait.legs[step.leg].locked = { x: step.to.x, y: step.to.y };
+        showContact(step.leg, step.to.x, step.to.y);
+      }
+      var sol = solveLegIK(step.leg, target);
+      gait.legs[step.leg].cur = { hipD: sol.hipDelta, kneeD: sol.kneeDelta, ankleD: sol.ankleDelta };
+      setLegPose(step.leg, sol.hipDelta, sol.kneeDelta, sol.ankleDelta);
+      setTipOpacity(step.leg, t < 1 ? "0.55" : "1");
+    });
+    if (allDone) gait.hub.active = false;
   }
 
   var spider = document.getElementById("spider");
@@ -678,7 +742,26 @@
     function setupLeg(i) {
       legIdx = i;
       var item = plan[i];
-      if (!item.leg) { legPath = null; return; } // hub pause: hold position
+      if (!item.leg) {
+        legPath = null;
+        // L4: hub pause entry — compute turn angle and start mini-steps
+        var incoming = gait.tangentDeg;
+        var nextItem = plan[i + 1];
+        if (nextItem && nextItem.leg && nextItem.leg.path) {
+          try {
+            var np = nextItem.leg.path;
+            var nrev = !!nextItem.leg.reverse;
+            var nlen = np.getTotalLength();
+            var np0 = np.getPointAtLength(nrev ? nlen : 0);
+            var np1 = np.getPointAtLength(nrev ? Math.max(0, nlen - 4) : Math.min(nlen, 4));
+            if (np0 && np1) {
+              var outDeg = Math.atan2(np1.y - np0.y, np1.x - np0.x) * 180 / Math.PI;
+              hubStartTurn(incoming, outDeg);
+            }
+          } catch (e) { /* no hub turn */ }
+        }
+        return;
+      } // hub pause: hold position
       legPath = item.leg.path;
       legReverse = !!item.leg.reverse;
       try { legLen = legPath.getTotalLength(); } catch (e) { legLen = 0; }
@@ -734,9 +817,15 @@
           updateGait(now, pt.x, pt.y, tangentDeg);
         }
       } else {
-        // Hub pause or no path: still update gait (velocity ~0 → settle)
-        var xy = spiderXY();
-        updateGait(now, xy.x, xy.y, null);
+        // Hub pause: L4 mini-steps if turning, else settle
+        var xy2 = spiderXY();
+        if (gait.hub.active) {
+          var hdt = Math.max(0.001, (now - (gait.lastT || now)) / 1000);
+          hubUpdate(hdt);
+          gait.lastT = now;
+        } else {
+          updateGait(now, xy2.x, xy2.y, null);
+        }
       }
       if (t >= 1) {
         if (legIdx + 1 >= plan.length) {
@@ -1396,6 +1485,8 @@
     _updateGait: updateGait,
     _resetGait: resetGait,
     _groups: function () { return { A: GROUP_A, B: GROUP_B }; },
+    _hubStartTurn: hubStartTurn,
+    _hubUpdate: hubUpdate,
     _journeyActive: function () { return !!journeyState; },
     _connectWs: connectWs };
 
