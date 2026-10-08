@@ -1,0 +1,57 @@
+{
+  "version": 1,
+  "updated_at": "2026-10-08T18:21:22.047080+00:00",
+  "agent": {
+    "id": "muse",
+    "status": "working"
+  },
+  "task": {
+    "id": "t",
+    "title": "Build SPIDER Bridge v0.1",
+    "status": "failed",
+    "progress": null,
+    "started_at": "2026-10-08T18:08:20Z",
+    "completed_at": "2026-10-08T18:25:00Z"
+  },
+  "execution": {
+    "current_step": "ERROR",
+    "current_tool": "exec",
+    "tool_status": "failed",
+    "latest_action": null,
+    "latest_result_preview": null
+  },
+  "workflow": {
+    "nodes": [
+      "TASK",
+      "SEARCH",
+      "COLLECT",
+      "ANALYZE",
+      "CONNECT",
+      "VERIFY",
+      "PROCESS",
+      "RESULT",
+      "COMPLETE"
+    ],
+    "active_node": null,
+    "completed_nodes": [
+      "SEARCH"
+    ],
+    "failed_nodes": [
+      "PROCESS"
+    ]
+  },
+  "activity": [
+    {
+      "timestamp": "2026-10-08T18:20:00+00:00",
+      "type": "error",
+      "label": "tool_call:exec",
+      "status": "failed",
+      "tool": "exec",
+      "preview": null
+    }
+  ],
+  "result": {
+    "status": "failed",
+    "summary": null
+  }
+}

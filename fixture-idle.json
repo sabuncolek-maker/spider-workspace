@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "updated_at": "2026-10-08T18:21:22.047080+00:00",
+  "agent": {
+    "id": "muse",
+    "status": "idle"
+  },
+  "task": {
+    "id": null,
+    "title": null,
+    "status": null,
+    "progress": null,
+    "started_at": null,
+    "completed_at": null
+  },
+  "execution": {
+    "current_step": "UNKNOWN",
+    "current_tool": null,
+    "tool_status": null,
+    "latest_action": null,
+    "latest_result_preview": null
+  },
+  "workflow": {
+    "nodes": [
+      "TASK",
+      "SEARCH",
+      "COLLECT",
+      "ANALYZE",
+      "CONNECT",
+      "VERIFY",
+      "PROCESS",
+      "RESULT",
+      "COMPLETE"
+    ],
+    "active_node": null,
+    "completed_nodes": [],
+    "failed_nodes": []
+  },
+  "activity": [],
+  "result": null
+}

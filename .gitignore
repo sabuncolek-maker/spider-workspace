@@ -1,0 +1,17 @@
+# SPIDER Workspace — git ignore (GitHub Pages repo)
+# Jangan commit: credential, token, secret, data mentah internal.
+
+# Bridge internals (tidak untuk publik)
+/raw.json
+state_before.json
+*.log
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*~
+*.swp
+
+# Python
+__pycache__/
+*.pyc

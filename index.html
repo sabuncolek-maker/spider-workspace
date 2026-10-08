@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SPIDER — Agent Telemetry</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="stage">
+  <svg id="web" viewBox="0 0 1200 800" preserveAspectRatio="xMidYMid meet" aria-label="SPIDER workspace">
+    <defs>
+      <radialGradient id="halo" cx="50%" cy="50%" r="50%">
+        <stop offset="0%" stop-color="#d9a441" stop-opacity="0.20"/>
+        <stop offset="100%" stop-color="#d9a441" stop-opacity="0"/>
+      </radialGradient>
+      <radialGradient id="hubGlow" cx="50%" cy="50%" r="50%">
+        <stop offset="0%" stop-color="#ffffff" stop-opacity="0.10"/>
+        <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
+      </radialGradient>
+    </defs>
+    <g id="threads"></g>
+    <g id="nodes"></g>
+    <g id="ripples"></g>
+    <g id="spider" opacity="0">
+      <circle id="spiderHalo" r="34" fill="url(#halo)"/>
+      <g id="spiderBody" stroke="#e8e4d8" stroke-width="1.6" fill="none" stroke-linecap="round">
+        <!-- legs: 4 per side, 2-segment, with joint dots -->
+        <g id="legsL"></g>
+        <g id="legsR"></g>
+        <g id="joints" fill="#d9a441" stroke="none"></g>
+        <!-- abdomen: segmented plates -->
+        <ellipse cx="0" cy="4" rx="7" ry="11" fill="#14161b" stroke="#e8e4d8"/>
+        <line x1="-6.4" y1="1" x2="6.4" y2="1" stroke-width="1"/>
+        <line x1="-6.8" y1="7" x2="6.8" y2="7" stroke-width="1"/>
+        <circle cx="0" cy="-11" r="4.5" fill="#14161b" stroke="#e8e4d8"/>
+        <circle cx="0" cy="-11" r="1.4" fill="#d9a441" stroke="none"/>
+      </g>
+    </g>
+  </svg>
+  <div id="vignette"></div>
+
+  <header id="readout">
+    <div class="brand">SPIDER <span>telemetry</span></div>
+    <dl>
+      <div><dt>agent</dt><dd id="roAgent">—</dd></div>
+      <div><dt>task</dt><dd id="roTask">—</dd></div>
+      <div><dt>step</dt><dd id="roStep">—</dd></div>
+      <div><dt>tool</dt><dd id="roTool">—</dd></div>
+      <div><dt>latest</dt><dd id="roLatest">—</dd></div>
+    </dl>
+    <div id="snapline">
+      <span id="snapBadge" class="live">LIVE SNAPSHOT</span>
+      <span id="snapMeta">—</span>
+    </div>
+    <div id="note">polling state.json · snapshots, not real-time</div>
+  </header>
+
+  <aside id="feed">
+    <div class="feed-title">activity</div>
+    <ul id="feedList"></ul>
+  </aside>
+
+  <div id="offline" hidden>NO DATA — cannot reach state.json</div>
+</div>
+<script src="app.js"></script>
+</body>
+</html>
