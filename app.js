@@ -45,12 +45,16 @@
   /* Portrait zoom (~18%): crop the viewBox on narrow screens so the radial
    * workspace fills the frame. Visual only — no state, no coordinates change. */
   var svg = document.getElementById("web");
+  var w1c_baseVB = { x: 0, y: 0, w: 1200, h: 800 }; // W1-C: base framing
+  var w1c_cam = { fx: 600, fy: 400, zoom: 1 }; // W1-C: current focus (early init for fitView)
+  var w1c_target = { fx: 600, fy: 400, zoom: 1 }; // W1-C: desired focus
   function fitView() {
     var narrow = false;
     try {
       narrow = window.matchMedia && window.matchMedia("(max-width: 480px)").matches;
     } catch (e) { /* keep default */ }
-    svg.setAttribute("viewBox", narrow ? "100 70 1000 660" : "0 0 1200 800");
+    w1c_baseVB = narrow ? { x: 100, y: 70, w: 1000, h: 660 } : { x: 0, y: 0, w: 1200, h: 800 };
+    w1c_applyCamera(); // W1-C: re-apply pan/zoom on top of base
   }
   fitView();
   if (window.addEventListener) window.addEventListener("resize", fitView);
@@ -253,6 +257,67 @@
       }, 2500);
     });
     obs.observe(spiderEl, { attributes: true, attributeFilter: ["transform"] });
+  }
+
+  /* ---------- W1-C: Spatial Focus (camera) ----------
+   * Visual only. Subtle pan + zoom following spider activity.
+   * During journey: updated inside existing travelLegs frame() (no new rAF).
+   * Idle return: bounded self-terminating rAF (stops when settled).
+   * No locomotion change. Respects prefers-reduced-motion. No Math.random(). */
+  var w1c_returnRaf = 0;
+  var W1C_PAN = 0.15; // shift 15% towards spider
+  var W1C_ZOOM = 1.08; // 8% zoom in when active
+
+  function w1c_applyCamera() {
+    if (prefersReducedMotion) {
+      // Static safe framing
+      svg.setAttribute("viewBox", w1c_baseVB.x + " " + w1c_baseVB.y + " " + w1c_baseVB.w + " " + w1c_baseVB.h);
+      return;
+    }
+    var bw = w1c_baseVB.w, bh = w1c_baseVB.h;
+    var w = bw / w1c_cam.zoom, h = bh / w1c_cam.zoom;
+    // Focus point blended from base center towards target
+    var bcx = w1c_baseVB.x + bw / 2, bcy = w1c_baseVB.y + bh / 2;
+    var cx = bcx + (w1c_cam.fx - bcx) * W1C_PAN;
+    var cy = bcy + (w1c_cam.fy - bcy) * W1C_PAN;
+    svg.setAttribute("viewBox", (cx - w / 2).toFixed(1) + " " + (cy - h / 2).toFixed(1) + " " + w.toFixed(1) + " " + h.toFixed(1));
+  }
+  function w1c_setTarget(fx, fy, zoom) {
+    if (prefersReducedMotion) return;
+    w1c_target.fx = fx; w1c_target.fy = fy; w1c_target.zoom = zoom;
+    // Cancel any return animation; journey frame loop will drive towards target
+    if (w1c_returnRaf) { try { cancelAnimationFrame(w1c_returnRaf); } catch (e) {} w1c_returnRaf = 0; }
+  }
+  function w1c_updateCamera() {
+    // Called from existing travelLegs frame(). Lerps towards target.
+    if (prefersReducedMotion) return;
+    var k = 0.07;
+    w1c_cam.fx += (w1c_target.fx - w1c_cam.fx) * k;
+    w1c_cam.fy += (w1c_target.fy - w1c_cam.fy) * k;
+    w1c_cam.zoom += (w1c_target.zoom - w1c_cam.zoom) * k;
+    w1c_applyCamera();
+  }
+  function w1c_returnHome() {
+    // Bounded self-terminating return to home framing. Stops when settled.
+    if (prefersReducedMotion) { w1c_applyCamera(); return; }
+    w1c_target.fx = 600; w1c_target.fy = 400; w1c_target.zoom = 1;
+    if (w1c_returnRaf) return; // already returning
+    var step = function () {
+      var k = 0.1;
+      w1c_cam.fx += (w1c_target.fx - w1c_cam.fx) * k;
+      w1c_cam.fy += (w1c_target.fy - w1c_cam.fy) * k;
+      w1c_cam.zoom += (w1c_target.zoom - w1c_cam.zoom) * k;
+      w1c_applyCamera();
+      var d = Math.hypot(w1c_target.fx - w1c_cam.fx, w1c_target.fy - w1c_cam.fy) + Math.abs(w1c_target.zoom - w1c_cam.zoom) * 500;
+      if (d > 1) {
+        w1c_returnRaf = requestAnimationFrame(step);
+      } else {
+        w1c_cam.fx = 600; w1c_cam.fy = 400; w1c_cam.zoom = 1;
+        w1c_applyCamera();
+        w1c_returnRaf = 0;
+      }
+    };
+    w1c_returnRaf = requestAnimationFrame(step);
   }
 
   /* ---------- route graph (Design B, Phase 1) ----------
@@ -939,6 +1004,7 @@
       journeyState = null;
     }
     w1b_clearActivePath(); // W1-B1: clear on cancel/retarget
+    w1c_returnHome(); // W1-C: return to normal framing on cancel
     resetGait(); // L2: settle legs on cancel/retarget (no teleport)
   }
 
@@ -1045,6 +1111,7 @@
           }
           // L2/L3 gait: update from actual velocity + path tangent.
           updateGait(now, pt.x, pt.y, tangentDeg);
+          w1c_updateCamera(); // W1-C: subtle focus follows during journey
         }
       } else {
         // Hub pause: L4 mini-steps if turning, else settle
@@ -1094,8 +1161,10 @@
       // before completion. Single leg = 1150ms; via-hub = 550 + 100 + 500.
       w1b_setActivePath(from, node); // W1-B1: highlight actual route
       w1b_clusterResponse(node); // W1-B2: nearest ambient cluster reacts
+      w1c_setTarget(p.x, p.y, W1C_ZOOM); // W1-C: focus on destination
       travelLegs(from, node, VISUAL_MIN_MS - 50, function (completed) {
         w1b_clearActivePath(); // W1-B1: clear on arrival
+        w1c_returnHome(); // W1-C: ease back to normal framing
         if (completed) spiderNode = node;
       });
     }
