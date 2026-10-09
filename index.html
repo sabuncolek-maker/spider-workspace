@@ -227,21 +227,17 @@
 
     <div class="hud-card">
       <div class="hud-card-header">
-        <span>BRIDGE & DISPATCH</span>
+        <span>STATUS</span>
         <span id="conn-status" style="color: #00ffd5;">● WS SYNC</span>
       </div>
-      <div style="font-size: 11px; display: flex; flex-direction: column; gap: 4px; padding-top: 4px;">
+      <div style="font-size: 11px; display: flex; flex-direction: column; gap: 6px; padding-top: 6px;">
         <div style="display: flex; justify-content: space-between;">
-          <span>Words Scanned:</span>
-          <strong id="counter-words" style="color: #fff;">0/m</strong>
+          <span style="color:#5d7e97;">Terakhir aktif:</span>
+          <strong id="last-active" style="color: #fff;">-</strong>
         </div>
         <div style="display: flex; justify-content: space-between;">
-          <span>Tokens Indexed:</span>
-          <strong id="counter-tokens" style="color: #fff;">0</strong>
-        </div>
-        <div style="display: flex; justify-content: space-between;">
-          <span>Next State Poll:</span>
-          <strong id="poll-timer" style="color: #5d7e97;">7.0s</strong>
+          <span style="color:#5d7e97;">Total event:</span>
+          <strong id="total-events" style="color: #fff;">0</strong>
         </div>
       </div>
     </div>
@@ -466,6 +462,13 @@
       addLog(`MIGRATING TO CLUSTER [${CLUSTERS[idx].name}]${manual ? ' (manual)' : ''}`, true);
       updateMetrics();
     }
+    function updateLastActive() {
+      const el = document.getElementById('last-active');
+      if (!el || !lastEventAt) return;
+      const secs = Math.floor((Date.now() - lastEventAt) / 1000);
+      el.textContent = secs < 60 ? secs + ' dtk lalu' : Math.floor(secs/60) + ' mnt lalu';
+    }
+    setInterval(updateLastActive, 5000);
     function updateMetrics() {
       return; // UI metrics removed - only real essential data shown
       // eslint-disable-next-line no-unreachable
@@ -560,6 +563,7 @@
     }
     let pollSeconds = 7.0;
     let wsFailCount = 0;
+    let totalEventCount = 0;
     function connectWS() {
       const qs = new URLSearchParams(location.search);
       const wsUrl = qs.get("ws") || "wss://spider-realtime-poc.sabuncolek1508.workers.dev/ws";
@@ -616,6 +620,9 @@
     }
     function handleRealEvent(event) {
       lastEventAt = Date.now();
+      totalEventCount++;
+      document.getElementById('total-events').textContent = totalEventCount;
+      updateLastActive();
       const clusterIdx = mapEventToCluster(event);
       const toolName = event.tool || event.type || "unknown";
       // Record for real metrics
