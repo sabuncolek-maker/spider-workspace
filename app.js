@@ -451,24 +451,59 @@
         transform: "translate(" + hx + "," + hy + ") rotate(" + spread + ")"
       }, leg);
       el("circle", { "class": "joint hip-j", cx: 0, cy: 0, r: 2 }, hip);
-      el("line", { "class": "seg upper", x1: 0, y1: 0, x2: 0, y2: -LEG_UL }, hip);
+      var upperPath = el("path", {"class": "seg upper",
+        d: "M 0 0 Q 0 " + (-LEG_UL * 0.5) + " 0 " + (-LEG_UL)}, hip);
       var knee = el("g", {
         "class": "knee",
         transform: "translate(0," + (-LEG_UL) + ") rotate(" + kneeBend + ")"
       }, hip);
       el("circle", { "class": "joint knee-j", cx: 0, cy: 0, r: 1.8 }, knee);
-      el("line", { "class": "seg lower", x1: 0, y1: 0, x2: 0, y2: -LEG_LL }, knee);
+      var lowerPath = el("path", {"class": "seg lower",
+        d: "M 0 0 Q 0 " + (-LEG_LL * 0.5) + " 0 " + (-LEG_LL)}, knee);
       var ankle = el("g", {
         "class": "ankle",
         transform: "translate(0," + (-LEG_LL) + ") rotate(" + ankleBend + ")"
       }, knee);
       el("circle", { "class": "joint ankle-j", cx: 0, cy: 0, r: 1.4 }, ankle);
-      el("line", { "class": "seg foot", x1: 0, y1: 0, x2: 0, y2: -LEG_FL }, ankle);
+      var footPath = el("path", {"class": "seg foot",
+        d: "M 0 0 Q 0 " + (-LEG_FL * 0.5) + " 0 " + (-LEG_FL)}, ankle);
       el("circle", { "class": "tip", cx: 0, cy: -LEG_FL, r: 1.2 }, ankle);
-      legEls.push({ hip: hip, knee: knee, ankle: ankle });
+      legEls.push({ hip: hip, knee: knee, ankle: ankle,
+        upperPath: upperPath, lowerPath: lowerPath, footPath: footPath });
     });
   }
   buildLegs();
+
+  /* Aduok-inspired organic leg rendering.
+   * Layered sine wobble makes each bone slightly irregular while exact
+   * quadratic endpoints preserve the existing IK solution and foot locks.
+   * Pose-driven only: no free-running animation and no random(). */
+  function spiderWobble(x, y, phase) {
+    var a = Math.sin(0.30 * x + phase + 2.0 +
+      2.5 * Math.sin(0.40 * y - phase * 0.73 + 1.0));
+    var b = Math.sin(0.20 * y + phase * 1.07 + 2.8 +
+      2.3 * Math.sin(0.50 * x - phase * 0.61 + 0.5));
+    return a + b;
+  }
+
+  function updateOrganicLegVisual(i) {
+    var h = legHome[i], j = legEls[i];
+    if (!h || !j) return;
+    var L = (typeof gait !== "undefined" && gait.legs) ? gait.legs[i] : null;
+    var poseA = h.spread + (L ? L.cur.hipD : 0);
+    var poseK = h.kneeBend + (L ? L.cur.kneeD : 0);
+    var poseAn = h.ankleBend + (L ? L.cur.ankleD : 0);
+    var phase = i * 1.73;
+    var b1 = spiderWobble(poseA * 0.08, poseK * 0.05, phase) * 0.55;
+    var b2 = spiderWobble(poseK * 0.07, poseAn * 0.06, phase + 1.9) * 0.70;
+    var b3 = spiderWobble(poseAn * 0.12, i * 0.9, phase + 3.1) * 0.32;
+    j.upperPath.setAttribute("d", "M 0 0 Q " + b1.toFixed(2) + " " +
+      (-LEG_UL * 0.5).toFixed(2) + " 0 " + (-LEG_UL).toFixed(2));
+    j.lowerPath.setAttribute("d", "M 0 0 Q " + b2.toFixed(2) + " " +
+      (-LEG_LL * 0.5).toFixed(2) + " 0 " + (-LEG_LL).toFixed(2));
+    j.footPath.setAttribute("d", "M 0 0 Q " + b3.toFixed(2) + " " +
+      (-LEG_FL * 0.5).toFixed(2) + " 0 " + (-LEG_FL).toFixed(2));
+  }
 
   function setLegPose(i, hipDelta, kneeDelta, ankleDelta) {
     var h = legHome[i], j = legEls[i];
@@ -479,7 +514,12 @@
     j.ankle.setAttribute("transform",
       "translate(0," + (-LEG_LL) + ") rotate(" + (h.ankleBend + ankleDelta) + ")");
   }
-  function resetLegPose(i) { setLegPose(i, 0, 0, 0); }
+
+  // Recompute the organic curve whenever IK changes the pose.
+  function resetLegPose(i) {
+    setLegPose(i, 0, 0, 0);
+    updateOrganicLegVisual(i);
+  }
 
   /* ---------- L1: 2-bone analytic IK + single-leg step prototype ----------
    * Closed-form, no iteration, no library. Prototype only — manual trigger,
