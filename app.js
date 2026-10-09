@@ -274,8 +274,10 @@
    * Idle return: bounded self-terminating rAF (stops when settled).
    * No locomotion change. Respects prefers-reduced-motion. No Math.random(). */
   var w1c_returnRaf = 0;
-  var W1C_PAN = 0.28; // shift 28% towards spider (W1-C polish: more visible)
-  var W1C_ZOOM = 1.11; // 11% zoom in when active (W1-C polish: more visible)
+  var w1c_lastT = 0;
+  var W1C_PAN = 0.22; // quieter spatial pull; the world should move, not jump
+  var W1C_ZOOM = 1.07; // restrained depth change
+  var W1C_TAU = 0.34; // seconds; frame-rate independent camera response
 
   function w1c_applyCamera() {
     if (prefersReducedMotion) {
@@ -297,33 +299,42 @@
     // Cancel any return animation; journey frame loop will drive towards target
     if (w1c_returnRaf) { try { cancelAnimationFrame(w1c_returnRaf); } catch (e) {} w1c_returnRaf = 0; }
   }
-  function w1c_updateCamera() {
-    // Called from existing travelLegs frame(). Lerps towards target.
+  function w1c_updateCamera(now) {
+    // Driven by the journey's existing rAF. Exponential smoothing makes
+    // camera motion consistent across 30/60/120Hz devices.
     if (prefersReducedMotion) return;
-    var k = 0.07;
+    var t = typeof now === "number" ? now : performance.now();
+    var dt = w1c_lastT ? Math.min(0.05, Math.max(0.001, (t - w1c_lastT) / 1000)) : 0.016;
+    w1c_lastT = t;
+    var k = 1 - Math.exp(-dt / W1C_TAU);
     w1c_cam.fx += (w1c_target.fx - w1c_cam.fx) * k;
     w1c_cam.fy += (w1c_target.fy - w1c_cam.fy) * k;
     w1c_cam.zoom += (w1c_target.zoom - w1c_cam.zoom) * k;
     w1c_applyCamera();
   }
   function w1c_returnHome() {
-    // Bounded self-terminating return to home framing. Stops when settled.
+    // Bounded, frame-rate independent return to home framing.
     if (prefersReducedMotion) { w1c_applyCamera(); return; }
     w1c_target.fx = 600; w1c_target.fy = 400; w1c_target.zoom = 1;
-    if (w1c_returnRaf) return; // already returning
-    var step = function () {
-      var k = 0.1;
+    if (w1c_returnRaf) return;
+    var last = performance.now();
+    var step = function (now) {
+      var dt = Math.min(0.05, Math.max(0.001, (now - last) / 1000));
+      last = now;
+      var k = 1 - Math.exp(-dt / 0.42);
       w1c_cam.fx += (w1c_target.fx - w1c_cam.fx) * k;
       w1c_cam.fy += (w1c_target.fy - w1c_cam.fy) * k;
       w1c_cam.zoom += (w1c_target.zoom - w1c_cam.zoom) * k;
       w1c_applyCamera();
-      var d = Math.hypot(w1c_target.fx - w1c_cam.fx, w1c_target.fy - w1c_cam.fy) + Math.abs(w1c_target.zoom - w1c_cam.zoom) * 500;
-      if (d > 1) {
+      var d = Math.hypot(w1c_target.fx - w1c_cam.fx, w1c_target.fy - w1c_cam.fy) +
+              Math.abs(w1c_target.zoom - w1c_cam.zoom) * 500;
+      if (d > 0.7) {
         w1c_returnRaf = requestAnimationFrame(step);
       } else {
         w1c_cam.fx = 600; w1c_cam.fy = 400; w1c_cam.zoom = 1;
         w1c_applyCamera();
         w1c_returnRaf = 0;
+        w1c_lastT = 0;
       }
     };
     w1c_returnRaf = requestAnimationFrame(step);
@@ -968,8 +979,12 @@
   var LEG_MS = 550, HUB_PAUSE_MS = 100;
   var journeyState = null; // {cancelled, rafId} while a journey is in flight
 
-  function easeInOutCubic(t) {
-    return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+  /* Motion quality: quintic easing keeps acceleration/deceleration gentle,
+   * especially on mobile where short SVG journeys can otherwise read as jumps. */
+  function easeInOutQuint(t) {
+    return t < 0.5
+      ? 16 * t * t * t * t * t
+      : 1 - Math.pow(-2 * t + 2, 5) / 2;
   }
 
   // Spider orientation (Design B Phase 3 P1): rotation degrees, 0 = facing up
@@ -1091,7 +1106,7 @@
       var item = plan[legIdx];
       var t = Math.min(1, (now - legStart) / item.dur);
       if (legPath && legLen > 0) {
-        var e = easeInOutCubic(t);
+        var e = easeInOutQuint(t);
         var dist = legReverse ? legLen * (1 - e) : legLen * e;
         var pt = null;
         try { pt = legPath.getPointAtLength(dist); } catch (err) { /* hold */ }
@@ -1120,7 +1135,7 @@
           }
           // L2/L3 gait: update from actual velocity + path tangent.
           updateGait(now, pt.x, pt.y, tangentDeg);
-          w1c_updateCamera(); // W1-C: subtle focus follows during journey
+          w1c_updateCamera(now); // W1-C: frame-rate independent focus
         }
       } else {
         // Hub pause: L4 mini-steps if turning, else settle
