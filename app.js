@@ -1,21 +1,20 @@
-/* PULSAR — rebuild from zero.
- * Data pipeline preserved (WebSocket + state.json fallback + event protocol).
- * Visuals rewritten: spiral galaxy, pulsar core, energy beams. No IK, no walking.
- * Every visual is driven by real telemetry. No simulation.
+/* SWARM — rebuild from zero.
+ * 1. Crawlers leave living trails (persistent network graph)
+ * 2. Swarm, not individual (sprites multiply with workload)
+ * 3. Realtime stats (TOOLS / NODES / TRAILS / KEPT / SKIPPED)
+ * 4. Brain (evaluates every tool: KEPT or SKIPPED)
+ * Data protocol preserved. No simulation — every visual from real telemetry.
  */
 (function () {
 "use strict";
 
-var SVGNS = "http://www.w3.org/2000/svg";
+/* ---------- Config ---------- */
 var qs = new URLSearchParams(location.search);
 var STATE_URL = qs.get("src") || "state.json";
 var WS_URL = qs.get("ws") ||
   (location.protocol === "https:" ? "wss://" : "ws://") +
   "spider-realtime-poc.sabuncolek1508.workers.dev/ws";
 
-var CX = 600, CY = 400; // galactic center
-
-/* ---------- Tool -> node mapping (preserved) ---------- */
 var TOOL_NODE = {
   "search": "SEARCH", "browser.search": "SEARCH", "browser_search": "SEARCH",
   "deep_research": "SEARCH",
@@ -26,11 +25,9 @@ var TOOL_NODE = {
   "create_options": "RESULT",
   "browser.spawn_task": "TASK", "browser.steer_task": "TASK",
   "browser.peek_task": "TASK", "browser.list_tasks": "TASK",
-  "task.spawn": "TASK", "task.steer": "TASK",
-  "task.peek": "TASK", "task.list": "TASK",
-  "connect": "CONNECT", "browser.connect": "CONNECT",
-  "auth": "CONNECT", "browser.auth": "CONNECT",
-  "login": "CONNECT", "browser.login": "CONNECT",
+  "task.spawn": "TASK", "task.steer": "TASK", "task.peek": "TASK", "task.list": "TASK",
+  "connect": "CONNECT", "browser.connect": "CONNECT", "auth": "CONNECT",
+  "browser.auth": "CONNECT", "login": "CONNECT", "browser.login": "CONNECT",
   "oauth": "CONNECT", "browser.oauth": "CONNECT",
   "db": "VERIFY", "muse.db": "VERIFY"
 };
@@ -42,442 +39,451 @@ function toolToNode(tool) {
   if (key.indexOf("browser") !== -1) return "COLLECT";
   return "UNKNOWN";
 }
-
 var NODE_COLORS = {
   SEARCH: "#35e0ff", COLLECT: "#2dd4bf", PROCESS: "#ff4fd8",
   ANALYZE: "#a78bfa", RESULT: "#ffd166", COMPLETE: "#4ade80",
   ERROR: "#f87171", UNKNOWN: "#6f7683", TASK: "#ff9f43",
   VERIFY: "#60a5fa", CONNECT: "#f472b6"
 };
+var NODES = Object.keys(NODE_COLORS);
 
-/* ---------- Spiral galaxy layout (deterministic) ---------- */
-var NODES = ["SEARCH","COLLECT","PROCESS","ANALYZE","RESULT","COMPLETE",
-             "TASK","VERIFY","CONNECT","ERROR","UNKNOWN"];
-var POS = {};
-(function layoutSpiral() {
-  // logarithmic spiral: r = a * e^(b*theta)
-  var a = 120, b = 0.16;
+/* ---------- Canvas ---------- */
+var cv = document.getElementById("swarmCanvas");
+var ctx = cv.getContext("2d");
+var W = 0, H = 0, DPR = 1;
+function sizeCanvas() {
+  DPR = window.devicePixelRatio || 1;
+  W = window.innerWidth; H = window.innerHeight;
+  cv.width = W * DPR; cv.height = H * DPR;
+  cv.style.width = W + "px"; cv.style.height = H + "px";
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  layoutNodes();
+}
+
+/* ---------- Node layout: spiral (deterministic, normalized) ---------- */
+var nodePos = {}; // name -> {x, y} in pixels
+function layoutNodes() {
+  var cx = W / 2, cy = H / 2 + 20;
+  var maxR = Math.min(W, H) * 0.38;
   NODES.forEach(function (name, i) {
-    var theta = i * (Math.PI * 2 / NODES.length) * 2.4; // ~2.4 turns spread
-    var r = a * Math.exp(b * (i * 0.85));
-    if (r > 340) r = 340; // clamp to viewBox
-    POS[name] = {
-      x: CX + r * Math.cos(theta),
-      y: CY + r * Math.sin(theta) * 0.72, // squash for widescreen
-      depth: i / NODES.length // 0 = near center, 1 = far
+    var theta = i * 2.4; // golden-ish spread
+    var r = maxR * (0.25 + 0.75 * (i / (NODES.length - 1)));
+    nodePos[name] = {
+      x: cx + r * Math.cos(theta),
+      y: cy + r * Math.sin(theta) * 0.75,
+      visits: (nodePos[name] && nodePos[name].visits) || 0
     };
   });
-})();
-
-/* ---------- DOM helpers ---------- */
-function el(tag, attrs, parent) {
-  var n = document.createElementNS(SVGNS, tag);
-  if (attrs) Object.keys(attrs).forEach(function (k) { n.setAttribute(k, attrs[k]); });
-  if (parent) parent.appendChild(n);
-  return n;
+  // jelly home near center
+  jelly.hx = cx; jelly.hy = cy;
 }
+
+/* ---------- State ---------- */
+var stats = { tools: 0, nodes: {}, trails: 0, kept: 0, skipped: 0 };
+var links = []; // {a, b, strength, age}
+var trails = []; // {pts: [{x,y}], life, color}
+var sprites = [];
+var seenEvents = {};
+var activeNode = null, activeUntil = 0;
+
+/* ---------- Jellyfish (the creature = Muse) ---------- */
+var jelly = {
+  x: 0, y: 0, tx: 0, ty: 0, hx: 0, hy: 0,
+  bellPhase: 0, pulseAmp: 1, heading: -Math.PI / 2,
+  tentacles: []
+};
+function initJelly() {
+  jelly.x = jelly.hx; jelly.y = jelly.hy;
+  jelly.tx = jelly.hx; jelly.ty = jelly.hy;
+  jelly.tentacles = [];
+  for (var i = 0; i < 12; i++) {
+    jelly.tentacles.push({
+      spread: (i / 12 - 0.5) * 1.7,
+      len: 80 + Math.random() * 60,
+      phase: Math.random() * 10,
+      width: 1.1 + Math.random() * 1.3
+    });
+  }
+}
+function wob(x, y, t) {
+  return Math.sin(0.3 * x + 1.4 * t + 2 + 2.5 * Math.sin(0.4 * y - 1.3 * t + 1)) +
+         Math.sin(0.2 * y + 1.5 * t + 2.8 + 2.3 * Math.sin(0.5 * x - 1.2 * t + 0.5));
+}
+
+/* ---------- Brain: evaluate every tool ---------- */
+var brainEl = document.querySelector(".stat.brain");
+var brainText = document.getElementById("brainText");
+var brainTimer = 0;
+function brainJudge(tool, node) {
+  var isSystem = tool === "db" || tool === "muse.db";
+  var verdict = isSystem ? "SKIPPED" : "KEPT";
+  if (isSystem) stats.skipped++; else stats.kept++;
+  updateStats();
+  brainEl.className = "stat brain " + verdict.toLowerCase();
+  brainText.textContent = (isSystem ? "SKIP " : "KEEP ") + String(tool).slice(0, 14);
+  clearTimeout(brainTimer);
+  brainTimer = setTimeout(function () {
+    brainEl.className = "stat brain";
+    brainText.textContent = "BRAIN IDLE";
+  }, 1800);
+  return !isSystem;
+}
+
+/* ---------- Sprites: swarm workers ---------- */
+function spawnSprites(node, count) {
+  var p = nodePos[node];
+  if (!p) return;
+  for (var i = 0; i < count; i++) {
+    sprites.push({
+      x: jelly.x + (Math.random() - 0.5) * 30,
+      y: jelly.y + (Math.random() - 0.5) * 30,
+      tx: p.x + (Math.random() - 0.5) * 24,
+      ty: p.y + (Math.random() - 0.5) * 24,
+      speed: 5 + Math.random() * 4,
+      life: 1, decay: 0.008 + Math.random() * 0.008,
+      trail: [], color: NODE_COLORS[node] || "#35e0ff",
+      phase: Math.random() * 10
+    });
+  }
+}
+
+/* ---------- Trails: living, persistent ---------- */
+function addTrail(x1, y1, x2, y2, color) {
+  var pts = [];
+  var segs = 16;
+  for (var i = 0; i <= segs; i++) {
+    var f = i / segs;
+    pts.push({ x: x1 + (x2 - x1) * f, y: y1 + (y2 - y1) * f });
+  }
+  trails.push({ pts: pts, life: 1, color: color });
+  stats.trails++;
+  if (trails.length > 400) trails.shift(); // cap
+}
+
+/* ---------- Links: network graph that grows ---------- */
+function addLink(a, b) {
+  for (var i = 0; i < links.length; i++) {
+    if ((links[i].a === a && links[i].b === b) || (links[i].a === b && links[i].b === a)) {
+      links[i].strength = Math.min(1, links[i].strength + 0.25);
+      links[i].age = 0;
+      return;
+    }
+  }
+  links.push({ a: a, b: b, strength: 0.3, age: 0 });
+}
+
+/* ---------- Stats DOM ---------- */
+function updateStats() {
+  document.getElementById("stTools").textContent = stats.tools;
+  document.getElementById("stNodes").textContent = Object.keys(stats.nodes).length;
+  document.getElementById("stTrails").textContent = stats.trails;
+  document.getElementById("stKept").textContent = stats.kept;
+  document.getElementById("stSkipped").textContent = stats.skipped;
+}
+
+/* ---------- Feed ---------- */
+var feedList = document.getElementById("feedList");
 function esc(s) {
   return String(s == null ? "" : s).replace(/[&<>"]/g, function (c) {
     return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c];
   });
 }
-
-/* ---------- Build scene ---------- */
-var nodesG = document.getElementById("nodes");
-var beamsG = document.getElementById("beams");
-var armsG = document.getElementById("spiralArms");
-var pulsarEl = document.getElementById("pulsar");
-var ringsG = document.getElementById("rings");
-var nodeEls = {};
-
-// faint spiral arms
-(function drawArms() {
-  for (var arm = 0; arm < 2; arm++) {
-    var d = "";
-    for (var t = 0; t <= 40; t++) {
-      var th = (t / 40) * Math.PI * 3 + arm * Math.PI;
-      var r = 90 + (t / 40) * 260;
-      var x = CX + r * Math.cos(th), y = CY + r * Math.sin(th) * 0.72;
-      d += (t === 0 ? "M " : " L ") + x.toFixed(1) + " " + y.toFixed(1);
-    }
-    el("path", { d: d }, armsG);
-  }
-})();
-
-// nodes as stars
-NODES.forEach(function (name) {
-  var p = POS[name];
-  var color = NODE_COLORS[name] || "#888";
-  var size = 14 - p.depth * 6; // far = smaller
-  var g = el("g", { "class": "node", id: "node-" + name }, nodesG);
-  // glow
-  el("circle", { cx: p.x, cy: p.y, r: size * 2.2, fill: "url(#nodeGlow)",
-    opacity: 0.35, style: "color:" + color }, g);
-  // orb
-  el("circle", { "class": "node-orb", cx: p.x, cy: p.y, r: size,
-    fill: "#0b0f1a", stroke: color, "stroke-width": 1.6,
-    style: "color:" + color }, g);
-  // label
-  var label = el("text", { "class": "node-label", x: p.x, y: p.y + size + 18 }, g);
-  label.textContent = name;
-  nodeEls[name] = g;
-});
-
-// ambient particles
-(function particles() {
-  var pg = document.getElementById("particles");
-  var colors = ["#ffffff", "#aef4ff", "#ffc7ec"];
-  for (var i = 0; i < 130; i++) {
-    el("circle", {
-      cx: (Math.random() * 1200).toFixed(0),
-      cy: (Math.random() * 800).toFixed(0),
-      r: (0.5 + Math.random() * 1.4).toFixed(1),
-      fill: colors[i % 3],
-      style: "animation-delay:" + (Math.random() * 4).toFixed(2) + "s"
-    }, pg);
-  }
-})();
-
-/* ---------- Pulsar rings (heartbeat) ---------- */
-setInterval(function () {
-  if (document.hidden) return;
-  var c = el("circle", { "class": "pulsar-ring", cx: 0, cy: 0, r: 34 }, ringsG);
-  setTimeout(function () { if (c.parentNode) c.parentNode.removeChild(c); }, 3200);
-}, 3000);
-
-/* ---------- Energy beams: core fires at active node ---------- */
-var activeNode = null;
-function fireBeam(node) {
-  // JELLYFISH era: creature swims to node; node flares. No SVG beams.
-  setActiveNode(node);
+function fmtT(ts) {
+  try { return new Date(ts).toTimeString().slice(0, 8); } catch (e) { return "--:--:--"; }
 }
-function setActiveNode(node) {
-  if (activeNode && nodeEls[activeNode]) nodeEls[activeNode].setAttribute("class", "node");
-  activeNode = node;
-  if (nodeEls[node]) nodeEls[node].setAttribute("class", "node active");
-}
-
-/* ---------- Readout + feed ---------- */
-function setRo(id, v) { var n = document.getElementById(id); if (n) n.innerHTML = v; }
-var feedList = document.getElementById("feedList");
-function addFeed(time, text, cls) {
+function addFeed(text, cls) {
   var li = document.createElement("li");
   if (cls) li.className = cls;
-  li.innerHTML = '<span class="t">' + esc(time) + '</span><span class="dot"></span><span>' + esc(text) + '</span>';
+  li.innerHTML = '<span class="t">' + fmtT(Date.now()) + "</span><span>" + esc(text) + "</span>";
   feedList.insertBefore(li, feedList.firstChild);
-  while (feedList.children.length > 14) feedList.removeChild(feedList.lastChild);
-}
-function fmtTime(ts) {
-  try { var d = new Date(ts); return d.toTimeString().slice(0, 8); }
-  catch (e) { return "--:--:--"; }
+  while (feedList.children.length > 12) feedList.removeChild(feedList.lastChild);
 }
 
-/* ---------- Event pipeline (preserved protocol) ---------- */
-var visualQueue = [];
-var pumping = false;
-var lastEventTs = 0;
-var seenEvents = {};
-
-function pumpQueue() {
-  if (pumping) return;
-  var item = visualQueue.shift();
-  if (!item) return;
-  pumping = true;
-  // Pulsar fires beam — no travel time, instant but paced
-  fireBeam(item.node);
-  setRo("roNode", esc(item.node));
-  setRo("roTool", esc(item.tool || "—"));
-  setRo("roLatest", esc(item.tool || "—") + " · " + fmtTime(item.ts));
-  setTimeout(function () {
-    pumping = false;
-    pumpQueue();
-  }, 1200); // visual pacing slot
+/* ---------- Event pipeline ---------- */
+function onToolStarted(tool, node, ts) {
+  stats.tools++;
+  stats.nodes[node] = (stats.nodes[node] || 0) + 1;
+  if (nodePos[node]) nodePos[node].visits++;
+  updateStats();
+  // jellyfish swims toward node
+  var p = nodePos[node];
+  if (p) {
+    var dx = p.x - jelly.x, dy = p.y - jelly.y;
+    var d = Math.hypot(dx, dy) || 1;
+    jelly.tx = p.x - dx / d * 80;
+    jelly.ty = p.y - dy / d * 80;
+    jelly.pulseAmp = 1.7;
+    setTimeout(function () { jelly.pulseAmp = 1; }, 2200);
+  }
+  // swarm sprites
+  spawnSprites(node, 2 + Math.floor(Math.random() * 2));
+  // trail from jelly to node
+  if (p) addTrail(jelly.x, jelly.y, p.x, p.y, NODE_COLORS[node] || "#35e0ff");
+  // link jelly-home to node (network grows)
+  addLink("JELLY", node);
+  activeNode = node;
+  activeUntil = performance.now() + 2500;
+  addFeed(node + " · " + tool, "kept-row");
+}
+function onToolFailed(tool, node) {
+  spawnSprites("ERROR", 3);
+  addFeed("ERROR · " + tool + " failed", "");
 }
 
 function handleMessage(msg) {
-  if (!msg || typeof msg !== "object") return false;
+  if (!msg || typeof msg !== "object") return;
   var eid = msg.event_id;
   if (eid) {
-    if (seenEvents[eid]) return true;
+    if (seenEvents[eid]) return;
     seenEvents[eid] = 1;
-    var keys = Object.keys(seenEvents);
-    if (keys.length > 500) delete seenEvents[keys[0]];
+    var ks = Object.keys(seenEvents);
+    if (ks.length > 500) delete seenEvents[ks[0]];
   }
-  var et = msg.event_type;
-  var tool = msg.tool;
+  var et = msg.event_type, tool = msg.tool;
   var ts = msg.timestamp || Date.now();
   var node = (msg.node && msg.node !== "UNKNOWN") ? msg.node : toolToNode(tool);
-  var isSystem = tool === "db" || tool === "muse.db";
 
   if (et === "TOOL_STARTED") {
-    if (isSystem) return true;
-    lastEventTs = Date.now();
-    visualQueue.push({ node: node, tool: tool, ts: ts });
-    addFeed(fmtTime(ts), node + " · " + tool, "");
-    setRo("roAgent", "WORKING");
-    pumpQueue();
-    return true;
-  }
-  if (et === "TOOL_COMPLETED" || et === "TOOL_FAILED") {
+    var kept = brainJudge(tool, node);
+    if (!kept) { addFeed("skip · " + tool + " (system)", "skip-row"); return; }
+    onToolStarted(tool, node, ts);
+  } else if (et === "TOOL_COMPLETED" || et === "TOOL_FAILED") {
     var ok = msg.success !== false;
-    if (tool && !isSystem) {
-      addFeed(fmtTime(ts), node + " " + (ok ? "DONE" : "FAILED") + " (" + tool + ")",
-              ok ? "succ" : "fail");
-    }
-    if (!ok && !isSystem) {
-      visualQueue.push({ node: "ERROR", tool: tool, ts: ts });
-      pumpQueue();
-    }
-    return true;
-  }
-  if (et === "TASK_STARTED" || et === "TASK_COMPLETED") {
+    if (!ok && tool !== "db" && tool !== "muse.db") onToolFailed(tool, node);
+  } else if (et === "TASK_STARTED" || et === "TASK_COMPLETED") {
     var tn = et === "TASK_STARTED" ? "TASK" : "COMPLETE";
-    visualQueue.push({ node: tn, tool: tool || "task", ts: ts });
-    addFeed(fmtTime(ts), tn + " · " + (msg.task || "task"),
-            et === "TASK_COMPLETED" ? "succ" : "");
-    setRo("roTask", esc(msg.task || "—"));
-    pumpQueue();
-    return true;
+    brainJudge(tool || "task", tn);
+    onToolStarted(tool || "task", tn, ts);
   }
-  return false;
 }
 
-/* ---------- State.json fallback poll ---------- */
-var lastStateTs = 0;
-var wsLive = false;
+/* ---------- WebSocket + fallback ---------- */
+var connDot = document.getElementById("connDot");
+var connText = document.getElementById("connText");
+var wsLive = false, wsFail = 0, lastStateTs = 0;
+function setConn(cls, txt) { connDot.className = cls; connText.textContent = txt; }
+function connect() {
+  var s;
+  try { s = new WebSocket(WS_URL); } catch (e) { reconnect(); return; }
+  s.onopen = function () { wsFail = 0; wsLive = true; setConn("live", "LIVE"); };
+  s.onmessage = function (ev) { try { handleMessage(JSON.parse(ev.data)); } catch (e) {} };
+  s.onclose = function () { reconnect(); };
+  s.onerror = function () { try { s.close(); } catch (e) {} };
+}
+function reconnect() {
+  wsLive = false; wsFail++;
+  setConn(wsFail > 2 ? "dead" : "", wsFail > 2 ? "FALLBACK" : "reconnecting");
+  setTimeout(connect, Math.min(5000 * wsFail, 30000));
+}
 function pollState() {
-  fetch(STATE_URL, { cache: "no-store" })
-    .then(function (r) { return r.ok ? r.json() : null; })
+  fetch(STATE_URL, { cache: "no-store" }).then(function (r) { return r.ok ? r.json() : null; })
     .then(function (st) {
       if (!st) return;
       var ts = st.timestamp || st.updated_at || 0;
       if (ts <= lastStateTs) return;
       lastStateTs = ts;
-      // derive node from latest tool (only when WS is not live, to avoid double-fire)
-      var tool = (st.latest_tool || st.tool || "");
-      if (wsLive) tool = "";
+      if (wsLive) return;
+      var tool = st.latest_tool || st.tool || "";
       if (tool && tool !== "db" && tool !== "muse.db") {
-        var node = toolToNode(tool);
-        visualQueue.push({ node: node, tool: tool, ts: ts });
-        addFeed(fmtTime(ts), node + " · " + tool + " (snapshot)", "");
-        pumpQueue();
+        if (brainJudge(tool, toolToNode(tool))) onToolStarted(tool, toolToNode(tool), ts);
       }
-      if (st.task) setRo("roTask", esc(st.task));
-      updateStale(ts);
-    })
-    .catch(function () {});
-}
-function updateStale(ts) {
-  var age = Date.now() - new Date(ts).getTime();
-  var badge = document.getElementById("snapBadge");
-  if (age > 180000) {
-    badge.textContent = "STALE SNAPSHOT";
-    badge.style.background = "rgba(248,113,113,0.12)";
-    badge.style.color = "#f87171";
-    badge.style.borderColor = "rgba(248,113,113,0.25)";
-  } else {
-    badge.textContent = "SNAPSHOT OK";
-    badge.style.background = "";
-    badge.style.color = "";
-    badge.style.borderColor = "";
-  }
+    }).catch(function () {});
 }
 
-/* ---------- WebSocket ---------- */
-var socket = null;
-var connDot = document.getElementById("connDot");
-var connText = document.getElementById("connText");
-var wsFailed = 0;
+/* ---------- Render loop ---------- */
+function draw(time) {
+  ctx.clearRect(0, 0, W, H);
+  var now = performance.now();
 
-function setConn(state, text) {
-  connDot.className = state;
-  connText.textContent = text;
-}
-function connect() {
-  try { socket = new WebSocket(WS_URL); } catch (e) { scheduleReconnect(); return; }
-  socket.onopen = function () {
-    wsFailed = 0;
-    wsLive = true;
-    setConn("live", "LIVE · WebSocket");
-  };
-  socket.onmessage = function (ev) {
-    try { handleMessage(JSON.parse(ev.data)); }
-    catch (e) {}
-  };
-  socket.onclose = function () { scheduleReconnect(); };
-  socket.onerror = function () {
-    try { socket.close(); } catch (e) {}
-  };
-}
-function scheduleReconnect() {
-  wsLive = false;
-  wsFailed++;
-  setConn(wsFailed > 2 ? "dead" : "", wsFailed > 2 ? "FALLBACK · polling state.json" : "reconnecting…");
-  setTimeout(connect, Math.min(5000 * wsFailed, 30000));
-}
-
-// freshness: STALE if no valid TOOL_STARTED for 60s
-setInterval(function () {
-  if (lastEventTs && Date.now() - lastEventTs > 60000) {
-    setRo("roAgent", "IDLE");
-  }
-}, 5000);
-
-/* ---------- JELLYFISH: Muse as a cosmic creature ---------- */
-var jCanvas = document.getElementById("tendrilCanvas");
-var jCtx = jCanvas.getContext("2d");
-function svgToScreen(sx, sy) {
-  var scale = Math.min(innerWidth / 1200, innerHeight / 800);
-  var ox = (innerWidth - 1200 * scale) / 2;
-  var oy = (innerHeight - 800 * scale) / 2;
-  return { x: ox + sx * scale, y: oy + sy * scale };
-}
-
-var jelly = {
-  x: 0, y: 0,           // screen coords
-  tx: 0, ty: 0,         // target
-  vx: 0, vy: 0,
-  bellPhase: 0,         // pulse cycle
-  pulseAmp: 1,          // stronger when moving
-  heading: 0,           // movement direction
-  tentacles: []
-};
-var J_TENTACLES = 12;
-
-function sizeJellyCanvas() {
-  var dpr = window.devicePixelRatio || 1;
-  jCanvas.width = innerWidth * dpr;
-  jCanvas.height = innerHeight * dpr;
-  jCanvas.style.width = innerWidth + "px";
-  jCanvas.style.height = innerHeight + "px";
-  jCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
-}
-function jwobble(x, y, t) {
-  var a = Math.sin(0.3 * x + 1.4 * t + 2.0 + 2.5 * Math.sin(0.4 * y - 1.3 * t + 1.0));
-  var b = Math.sin(0.2 * y + 1.5 * t + 2.8 + 2.3 * Math.sin(0.5 * x - 1.2 * t + 0.5));
-  return a + b;
-}
-function initJelly() {
-  var pc = svgToScreen(CX, CY);
-  jelly.x = pc.x; jelly.y = pc.y;
-  jelly.tx = pc.x; jelly.ty = pc.y;
-  jelly.tentacles = [];
-  for (var i = 0; i < J_TENTACLES; i++) {
-    jelly.tentacles.push({
-      spread: (i / J_TENTACLES - 0.5) * 1.6,  // fan below bell
-      len: 90 + Math.random() * 70,
-      phase: Math.random() * 10,
-      width: 1.2 + Math.random() * 1.4
+  // 1. trails (persistent, slow fade)
+  for (var i = trails.length - 1; i >= 0; i--) {
+    var tr = trails[i];
+    tr.life -= 0.0012;
+    if (tr.life <= 0) { trails.splice(i, 1); continue; }
+    ctx.beginPath();
+    tr.pts.forEach(function (pt, j) {
+      if (j === 0) ctx.moveTo(pt.x, pt.y); else ctx.lineTo(pt.x, pt.y);
     });
+    ctx.strokeStyle = hexA(tr.color, 0.28 * tr.life);
+    ctx.lineWidth = 1.4;
+    ctx.stroke();
   }
+
+  // 2. links (network graph)
+  for (var l = 0; l < links.length; l++) {
+    var lk = links[l];
+    lk.age += 0.001;
+    var pa = lk.a === "JELLY" ? { x: jelly.hx, y: jelly.hy } : nodePos[lk.a];
+    var pb = nodePos[lk.b];
+    if (!pa || !pb) continue;
+    var fade = Math.max(0.12, 1 - lk.age * 0.05);
+    ctx.beginPath();
+    ctx.moveTo(pa.x, pa.y);
+    ctx.lineTo(pb.x, pb.y);
+    ctx.strokeStyle = hexA(NODE_COLORS[lk.b] || "#35e0ff", 0.22 * lk.strength * fade + 0.05);
+    ctx.lineWidth = 1 + lk.strength * 1.6;
+    ctx.stroke();
+  }
+
+  // 3. nodes
+  var act = now < activeUntil ? activeNode : null;
+  NODES.forEach(function (name) {
+    var p = nodePos[name];
+    var color = NODE_COLORS[name];
+    var isAct = name === act;
+    var r = 10 + Math.min(p.visits * 1.2, 10) + (isAct ? 5 * Math.abs(Math.sin(time * 4)) : 0);
+    // glow
+    var g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, r * 3);
+    g.addColorStop(0, hexA(color, isAct ? 0.55 : 0.25));
+    g.addColorStop(1, hexA(color, 0));
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(p.x, p.y, r * 3, 0, 7); ctx.fill();
+    // orb
+    ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, 7);
+    ctx.fillStyle = "#0a0e1a";
+    ctx.fill();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = isAct ? 2.6 : 1.4;
+    ctx.shadowColor = color; ctx.shadowBlur = isAct ? 18 : 7;
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+    // label
+    ctx.fillStyle = isAct ? "#fff" : "rgba(160,170,190,0.75)";
+    ctx.font = "10px JetBrains Mono, monospace";
+    ctx.textAlign = "center";
+    ctx.fillText(name, p.x, p.y + r + 16);
+  });
+
+  // 4. sprites (swarm workers)
+  for (var s = sprites.length - 1; s >= 0; s--) {
+    var sp = sprites[s];
+    var dx = sp.tx - sp.x, dy = sp.ty - sp.y;
+    var d = Math.hypot(dx, dy);
+    if (d > 4) {
+      sp.x += dx / d * sp.speed;
+      sp.y += dy / d * sp.speed;
+      sp.trail.push({ x: sp.x, y: sp.y });
+      if (sp.trail.length > 14) sp.trail.shift();
+    } else {
+      sp.life -= sp.decay * 3;
+    }
+    sp.life -= sp.decay * 0.4;
+    if (sp.life <= 0) { sprites.splice(s, 1); continue; }
+    // trail
+    if (sp.trail.length > 1) {
+      ctx.beginPath();
+      sp.trail.forEach(function (pt, j) {
+        if (j === 0) ctx.moveTo(pt.x, pt.y); else ctx.lineTo(pt.x, pt.y);
+      });
+      ctx.strokeStyle = hexA(sp.color, 0.5 * sp.life);
+      ctx.lineWidth = 1.6;
+      ctx.stroke();
+    }
+    // body
+    ctx.beginPath(); ctx.arc(sp.x, sp.y, 3.2, 0, 7);
+    ctx.fillStyle = hexA("#ffffff", 0.9 * sp.life);
+    ctx.shadowColor = sp.color; ctx.shadowBlur = 10;
+    ctx.fill();
+    ctx.shadowBlur = 0;
+  }
+
+  // 5. jellyfish (main creature)
+  drawJelly(time);
+
+  requestAnimationFrame(draw);
 }
-// creature swims toward active node
-function jellySwimTo(node) {
-  var p = POS[node];
-  if (!p) return;
-  var pn = svgToScreen(p.x, p.y);
-  // stop short of node (hover near, not on top)
-  var pc = { x: jelly.x, y: jelly.y };
-  var dx = pn.x - pc.x, dy = pn.y - pc.y;
-  var d = Math.hypot(dx, dy) || 1;
-  var hover = 70;
-  jelly.tx = pn.x - dx / d * hover;
-  jelly.ty = pn.y - dy / d * hover;
-  jelly.pulseAmp = 1.8; // excited
-  setTimeout(function () { jelly.pulseAmp = 1; }, 2500);
-}
+
 function drawJelly(time) {
-  jCtx.clearRect(0, 0, innerWidth, innerHeight);
-  // --- movement: smooth swim ---
   var dx = jelly.tx - jelly.x, dy = jelly.ty - jelly.y;
   var dist = Math.hypot(dx, dy);
-  if (dist > 2) {
+  if (dist > 3) {
     jelly.heading = Math.atan2(dy, dx);
-    var speed = Math.min(3.2, dist * 0.045) * jelly.pulseAmp;
-    jelly.x += Math.cos(jelly.heading) * speed;
-    jelly.y += Math.sin(jelly.heading) * speed;
+    var sp = Math.min(3.4, dist * 0.05) * jelly.pulseAmp;
+    jelly.x += Math.cos(jelly.heading) * sp;
+    jelly.y += Math.sin(jelly.heading) * sp;
   } else {
-    // idle drift
-    jelly.x += Math.sin(time * 0.5) * 0.3;
-    jelly.y += Math.cos(time * 0.4) * 0.25;
+    // drift home slowly when idle
+    var hx = jelly.hx - jelly.x, hy = jelly.hy - jelly.y;
+    var hd = Math.hypot(hx, hy);
+    if (hd > 30) { jelly.x += hx / hd * 0.4; jelly.y += hy / hd * 0.4; }
+    jelly.x += Math.sin(time * 0.5) * 0.25;
+    jelly.y += Math.cos(time * 0.4) * 0.2;
   }
-  // --- bell pulse ---
-  jelly.bellPhase += 0.06 * jelly.pulseAmp;
+  jelly.bellPhase += 0.055 * jelly.pulseAmp;
   var pulse = Math.sin(jelly.bellPhase);
-  var bellR = 34 * (1 + pulse * 0.10);
-  var bellH = 30 * (1 - pulse * 0.14); // squashes when pulsing
-  // bell faces movement direction; tentacles trail behind
-  var faceAng = dist > 2 ? jelly.heading : -Math.PI / 2;
-  jCtx.save();
-  jCtx.translate(jelly.x, jelly.y);
-  jCtx.rotate(faceAng + Math.PI / 2);
-  // tentacles (trail behind = downward in local space)
-  for (var k = 0; k < jelly.tentacles.length; k++) {
-    var t = jelly.tentacles[k];
-    var segs = 36;
-    jCtx.beginPath();
+  var bellR = 36 * (1 + pulse * 0.1);
+  var bellH = 32 * (1 - pulse * 0.13);
+  var face = dist > 3 ? jelly.heading : -Math.PI / 2;
+
+  ctx.save();
+  ctx.translate(jelly.x, jelly.y);
+  ctx.rotate(face + Math.PI / 2);
+  // tentacles
+  jelly.tentacles.forEach(function (t) {
+    ctx.beginPath();
+    var segs = 30;
     for (var i = 0; i <= segs; i++) {
       var f = i / segs;
-      var bx = Math.sin(t.spread) * 14; // base across bell rim
-      var r = f * t.len * (1 + pulse * 0.06);
-      var sway = jwobble(bx * 0.05, f * 8, time * 0.8 + t.phase) * 10 * f;
-      var x = bx + sway + Math.sin(t.spread) * f * 20;
-      var y = bellH * 0.5 + r;
-      if (i === 0) jCtx.moveTo(bx, bellH * 0.4);
-      else jCtx.lineTo(x, y);
+      var bx = Math.sin(t.spread) * 15;
+      var r = f * t.len * (1 + pulse * 0.05);
+      var sway = wob(bx * 0.06, f * 9, time * 0.9 + t.phase) * 11 * f;
+      var x = bx + sway + Math.sin(t.spread) * f * 22;
+      var y = bellH * 0.45 + r;
+      if (i === 0) ctx.moveTo(bx, bellH * 0.4); else ctx.lineTo(x, y);
     }
-    var grad = jCtx.createLinearGradient(0, 0, 0, t.len);
-    grad.addColorStop(0, "rgba(216,249,255,0.85)");
-    grad.addColorStop(0.4, "rgba(53,224,255,0.55)");
-    grad.addColorStop(1, "rgba(180,79,216,0)");
-    jCtx.strokeStyle = grad;
-    jCtx.lineWidth = t.width;
-    jCtx.lineCap = "round";
-    jCtx.shadowColor = "rgba(53,224,255,0.7)";
-    jCtx.shadowBlur = 8;
-    jCtx.stroke();
-    jCtx.shadowBlur = 0;
-  }
-  // bell dome
-  var bellGrad = jCtx.createRadialGradient(0, -8, 4, 0, 0, bellR * 1.4);
-  bellGrad.addColorStop(0, "rgba(255,255,255,0.95)");
-  bellGrad.addColorStop(0.35, "rgba(216,249,255,0.75)");
-  bellGrad.addColorStop(0.7, "rgba(53,224,255,0.35)");
-  bellGrad.addColorStop(1, "rgba(53,224,255,0)");
-  jCtx.beginPath();
-  jCtx.ellipse(0, 0, bellR, bellH, 0, Math.PI, 0); // top dome
-  jCtx.fillStyle = bellGrad;
-  jCtx.shadowColor = "rgba(53,224,255,0.9)";
-  jCtx.shadowBlur = 24;
-  jCtx.fill();
-  jCtx.shadowBlur = 0;
-  // inner glow core
-  jCtx.beginPath();
-  jCtx.arc(0, -4, 10 + pulse * 2, 0, Math.PI * 2);
-  jCtx.fillStyle = "rgba(255,255,255,0.9)";
-  jCtx.shadowColor = "rgba(255,255,255,1)";
-  jCtx.shadowBlur = 16;
-  jCtx.fill();
-  jCtx.shadowBlur = 0;
-  jCtx.restore();
-  requestAnimationFrame(function (ts) { drawJelly(ts / 1000); });
+    var tg = ctx.createLinearGradient(0, 0, 0, t.len);
+    tg.addColorStop(0, "rgba(220,250,255,0.8)");
+    tg.addColorStop(0.5, "rgba(53,224,255,0.45)");
+    tg.addColorStop(1, "rgba(180,79,216,0)");
+    ctx.strokeStyle = tg;
+    ctx.lineWidth = t.width;
+    ctx.lineCap = "round";
+    ctx.shadowColor = "rgba(53,224,255,0.7)";
+    ctx.shadowBlur = 9;
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+  });
+  // bell
+  var bg = ctx.createRadialGradient(0, -10, 5, 0, 0, bellR * 1.5);
+  bg.addColorStop(0, "rgba(255,255,255,0.95)");
+  bg.addColorStop(0.4, "rgba(200,245,255,0.7)");
+  bg.addColorStop(0.75, "rgba(53,224,255,0.3)");
+  bg.addColorStop(1, "rgba(53,224,255,0)");
+  ctx.beginPath();
+  ctx.ellipse(0, 0, bellR, bellH, 0, Math.PI, Math.PI * 2);
+  ctx.fillStyle = bg;
+  ctx.shadowColor = "rgba(53,224,255,0.9)";
+  ctx.shadowBlur = 26;
+  ctx.fill();
+  ctx.shadowBlur = 0;
+  // core
+  ctx.beginPath();
+  ctx.arc(0, -5, 9 + pulse * 2, 0, 7);
+  ctx.fillStyle = "rgba(255,255,255,0.92)";
+  ctx.shadowColor = "#fff"; ctx.shadowBlur = 18;
+  ctx.fill();
+  ctx.shadowBlur = 0;
+  ctx.restore();
 }
-// hook: creature swims on activity
-var _fireBeam2 = fireBeam;
-fireBeam = function (node) {
-  jellySwimTo(node);
-  _fireBeam2(node);
-};
+
+/* hex + alpha helper */
+function hexA(hex, a) {
+  var r = parseInt(hex.slice(1, 3), 16),
+      g = parseInt(hex.slice(3, 5), 16),
+      b = parseInt(hex.slice(5, 7), 16);
+  return "rgba(" + r + "," + g + "," + b + "," + Math.max(0, Math.min(1, a)).toFixed(3) + ")";
+}
 
 /* ---------- Boot ---------- */
-connect();
-sizeJellyCanvas();
+sizeCanvas();
+layoutNodes();
 initJelly();
-drawJelly(0);
-window.addEventListener("resize", function () { sizeJellyCanvas(); initJelly(); });
+window.addEventListener("resize", function () { sizeCanvas(); });
+connect();
 setInterval(pollState, 7000);
 pollState();
-setRo("roAgent", "IDLE");
-addFeed(fmtTime(Date.now()), "pulsar online · awaiting telemetry", "");
+updateStats();
+addFeed("swarm online · awaiting telemetry", "");
+requestAnimationFrame(draw);
 
 })();
