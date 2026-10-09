@@ -134,5 +134,20 @@ Ini akan memberi dimensi temporal yang hilang dari tampilan kartu saja.
 | Deploy | ✅ GitHub Pages otomatis dari `main` |
 | Verifikasi deploy | `index.html` mengandung "SPIDER by Erlangga"; `app.js` mengandung `renderToolNetwork`, `tweenNumber`, `getSessionStatus` (13 match) |
 
-**Catatan repo:** Bekerja via branch `spider-overhaul` sesuai `AGENTS.md`
-(tidak langsung di `main`), lalu merge via PR.
+## VERIFIKASI BROWSER RUNTIME (pasca-deploy)
+
+**Tanggal:** 9 Oktober 2026, 04:05 UTC
+**URL:** https://sabuncolek-maker.github.io/spider-workspace/
+
+| Aspek | Hasil |
+|-------|-------|
+| Header | ✅ Spider SVG cyan + "SPIDER" + "by Erlangga" + badge IDLE |
+| Stats bar | ✅ 0 TOOLS, 0 NODES, 1 EVENTS, 0 KEPT, 0 SKIPPED (EVENTS naik 0→1) |
+| Status agent | IDLE (pill di header) |
+| Status koneksi | LIVE (titik hijau di footer) |
+| Kartu | Kosong — sesuai ekspektasi (nol tool selama jendela 15 detik) |
+| Latar | ✅ Hitam pekat murni, tanpa nebula |
+| Console error | Tidak ada overlay error; halaman render normal |
+
+**Catatan:** Area kartu kosong adalah perilaku BENAR — tidak ada event tool
+masuk selama pengujian, dan sistem tidak mengarang kartu palsu.
