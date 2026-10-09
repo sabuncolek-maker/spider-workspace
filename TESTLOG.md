@@ -85,3 +85,20 @@ python3 -m http.server 8077
 curl -s http://127.0.0.1:8077/state.json | python3 -m json.tool | head -20
 # visual: http://127.0.0.1:8077/?src=fixture-stale.json
 ```
+
+
+## TEST 8 — W4 Motion Audit / 2026-10-09
+**PASS — static integrity audit.**
+- `app.js` contains exactly 1 `easeInOutQuint`, 0 legacy `easeInOutCubic`, 1 `buildAmbient`, 1 `AMBIENT_CLUSTER_CLS`, 0 legacy `AMBIENT_WEB_ZONES` / `AMBIENT_EDGES`.
+- Exactly 1 `routePath`, 1 `travelLegs`, 1 `spiderSetXY`; realtime and locomotion entry points remain intact.
+- Camera update is frame-rate independent and driven by the existing journey rAF; no new continuous camera rAF loop was introduced during travel.
+- CSS contains 1 spiral definition, 1 breathing keyframe, and dedicated W4 strand/junction styles. Existing mobile media rules remain present.
+- Asset cache-buster advanced to `app.js?v=20261009-4`.
+
+**Motion changes audited:**
+- Path easing upgraded from cubic to quintic ease-in-out for gentler acceleration/deceleration.
+- Camera pan reduced to 22% and zoom to 1.07 to avoid the “jump between planets” feeling.
+- Camera interpolation uses elapsed time (`Math.exp`) rather than a fixed per-frame coefficient, making motion more consistent across refresh rates.
+- Return-to-home camera motion uses the same frame-rate-independent smoothing.
+
+**Runtime limitation:** live browser rendering and `node --check` could not be executed from this environment during this pass. The repository's prior runtime tests remain documented above. Visual validation must be done on the deployed page, especially Android portrait/landscape.
