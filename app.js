@@ -42,24 +42,139 @@ var NODE_COLORS = {
   ERROR: "#f87171", UNKNOWN: "#6f7683", TASK: "#ff9f43",
   VERIFY: "#60a5fa", CONNECT: "#f472b6"
 };
-var NET_COLORS = ["#ff4fd8", "#35e0ff", "#ffd166", "#4ade80", "#a78bfa", "#ff9f43"];
+/* (NET_COLORS removed Fase 2: no random decorative nodes) */
 
-/* ---------- Stats ---------- */
-var stats = { tools: 0, events: 0, nodes: {}, kept: 0, skipped: 0 };
-function updateStats() {
-  setN("stTools", stats.tools);
-  setN("stNodes", Object.keys(stats.nodes).length);
-  setN("stEvents", stats.events);
-  setN("stKept", stats.kept);
-  setN("stSkipped", stats.skipped);
-  setN("jevKept", stats.kept);
-  setN("jevSkipped", stats.skipped);
+/* ---------- Fase 4: Counter tween (honest animation) ----------
+ * Animates number transitions but ALWAYS lands on the exact real value.
+ * Rapid updates: retargets mid-tween from current displayed value.
+ * No update is ever lost; final value always equals actual data.
+ */
+var tweens = {};
+var tweenRunning = false;
+function tweenNumber(id, to) {
+  var el = document.getElementById(id);
+  if (!el) return;
+  to = Math.max(0, Math.round(to));
+  var current = parseInt(el.textContent, 10);
+  if (isNaN(current)) current = 0;
+  // If tween in progress, retarget from currently displayed value
+  if (tweens[id]) current = parseInt(el.textContent, 10) || 0;
+  if (current === to) { delete tweens[id]; return; }
+  var reduced = window.matchMedia &&
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  if (reduced) { el.textContent = to; delete tweens[id]; return; }
+  tweens[id] = { from: current, to: to, start: performance.now() };
+  if (!tweenRunning) { tweenRunning = true; requestAnimationFrame(tweenFrame); }
 }
-function setN(id, v) { document.getElementById(id).textContent = v; }
+function tweenFrame(now) {
+  var active = false;
+  for (var id in tweens) {
+    var t = tweens[id];
+    var el = document.getElementById(id);
+    if (!el) { delete tweens[id]; continue; }
+    var p = Math.min(1, (now - t.start) / 450);
+    var eased = 1 - Math.pow(1 - p, 3);
+    var v = Math.round(t.from + (t.to - t.from) * eased);
+    if (p >= 1) { v = t.to; delete tweens[id]; } // exact landing
+    else active = true;
+    el.textContent = v;
+  }
+  if (active) requestAnimationFrame(tweenFrame);
+  else tweenRunning = false;
+}
+
+/* ---------- Fase 5: Session results panel ----------
+ * HONEST statuses only:
+ *   ACTIVE       - receiving events (wsLive, not stale)
+ *   INACTIVE     - STALE: no valid events for 60s+ (NOT "complete")
+ *   DISCONNECTED - transport down
+ *   UNKNOWN      - initial / cannot determine
+ * We NEVER claim COMPLETE without a valid session-end signal.
+ * Our event contract has no session-end event, so COMPLETE is not offered.
+ */
+var stats = { tools: 0, events: 0, nodes: {}, kept: 0, skipped: 0, failed: 0 };
+var sessionPanel = document.getElementById("sessionPanel");
+
+function getSessionStatus() {
+  if (wsLive) {
+    var idle = Date.now() - lastEventTs;
+    if (lastEventTs > 0 && idle > STALE_MS) return { k: "INACTIVE", d: "No valid events for " + Math.round(idle / 1000) + "s. Session may still resume." };
+    if (lastEventTs > 0) return { k: "ACTIVE", d: "Receiving live events." };
+    return { k: "UNKNOWN", d: "Connected, no events observed yet." };
+  }
+  if (wsFail > 0) return { k: "DISCONNECTED", d: "Transport down. Showing last known data (may be stale)." };
+  return { k: "UNKNOWN", d: "Connection not established." };
+}
+
+function openSessionPanel() {
+  if (!sessionPanel) return;
+  var st = getSessionStatus();
+  document.getElementById("sessionStatus").textContent = st.k;
+  document.getElementById("sessionStatus").style.color =
+    st.k === "ACTIVE" ? "#4ade80" : st.k === "INACTIVE" ? "#ffd166" :
+    st.k === "DISCONNECTED" ? "#f87171" : "#8a93a6";
+  // All counts from real stats (deduped at ingestion; no double-count)
+  document.getElementById("sessionStats").innerHTML =
+    "Tools observed: <b>" + stats.tools + "</b><br>" +
+    "Events processed: <b>" + stats.events + "</b><br>" +
+    "Kept: <b>" + stats.kept + "</b> · Skipped: <b>" + stats.skipped + "</b><br>" +
+    "Failed: <b>" + stats.failed + "</b><br>" +
+    "<span style='color:#5a6376'>" + esc(st.d) + "</span>";
+  sessionPanel.hidden = false;
+}
+function closeSessionPanel() { if (sessionPanel) sessionPanel.hidden = true; }
+
+// Wire up: click brand area to open, × to close, Esc to close
+(function () {
+  var brand = document.getElementById("brand");
+  if (brand) { brand.style.cursor = "pointer"; brand.title = "Session summary"; }
+  document.addEventListener("click", function (e) {
+    if (e.target && e.target.id === "sessionClose") { closeSessionPanel(); return; }
+    var b = e.target && e.target.closest ? e.target.closest("#brand") : null;
+    if (b && sessionPanel) {
+      if (sessionPanel.hidden) openSessionPanel(); else closeSessionPanel();
+    }
+  });
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape") closeSessionPanel();
+  });
+})();
+function updateStats() {
+  tweenNumber("stTools", stats.tools);
+  tweenNumber("stNodes", Object.keys(stats.nodes).length);
+  tweenNumber("stEvents", stats.events);
+  tweenNumber("stKept", stats.kept);
+  tweenNumber("stSkipped", stats.skipped);
+  tweenNumber("jevKept", stats.kept);
+  tweenNumber("jevSkipped", stats.skipped);
+}
+/* setN removed Fase 4: replaced by tweenNumber (exact-landing animation) */
 function esc(s) {
   return String(s == null ? "" : s).replace(/[&<>"]/g, function (c) {
     return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c];
   });
+}
+
+/* ---------- Spider status indicator (header identity) ---------- */
+var spiderMark = document.getElementById("spiderMark");
+var agentStatus = document.getElementById("agentStatus");
+var spiderIdleTimer = null;
+function spiderPulse() {
+  // Tied to REAL events only — no ambient fake activity
+  if (!spiderMark) return;
+  spiderMark.classList.add("active");
+  if (agentStatus) {
+    agentStatus.textContent = "WORKING";
+    agentStatus.className = "working";
+  }
+  if (spiderIdleTimer) clearTimeout(spiderIdleTimer);
+  spiderIdleTimer = setTimeout(function () {
+    spiderMark.classList.remove("active");
+    if (agentStatus) {
+      agentStatus.textContent = "IDLE";
+      agentStatus.className = "idle";
+    }
+  }, 8000);
 }
 
 /* ---------- Cards ---------- */
@@ -86,123 +201,206 @@ function makeCard(tool, node, ts) {
   while (cards.length > MAX_CARDS) {
     var old = cards.pop();
     old.classList.add("out");
-    (function (el) { setTimeout(function () { el.remove(); }, 420); })(old);
+    (function (el) { setTimeout(function () { el.remove(); drawInterCardLinks(); }, 420); })(old);
   }
-  // start network growth
+  // honest network: this tool + temporal predecessor (NOT causal)
+  var info = { tool: tool, node: node, ts: ts };
+  var prevInfo = toolSequence.length ? toolSequence[toolSequence.length - 1] : null;
+  // don't link a card to itself (same tool+ts arriving twice)
+  if (prevInfo && prevInfo.tool === tool && prevInfo.ts === ts) prevInfo = null;
   var canvas = card.querySelector("canvas");
-  growNetwork(canvas, color);
+  renderToolNetwork(canvas, info, prevInfo);
+  toolSequence.push({ tool: tool, node: node, ts: ts, card: card });
+  if (toolSequence.length > 50) toolSequence.shift();
   return card;
 }
 
 function markDone(card, ok) {
+  if (!card || !card.isConnected) return;
   var foot = card.querySelector(".card-foot");
+  if (!foot || foot.dataset.final) return; // don't overwrite a final state
+  foot.dataset.final = "1";
   foot.classList.add("done");
-  foot.querySelector(".st").textContent = ok === false ? "FAILED" : "DONE";
-  if (ok === false) foot.style.color = "#f87171";
+  var st = foot.querySelector(".st");
+  if (ok === true) { st.textContent = "DONE"; }
+  else if (ok === false) { st.textContent = "FAILED"; foot.style.color = "#f87171"; }
+  else { // uncertain: no completion event received, do NOT claim DONE
+    st.textContent = "UNCERTAIN";
+    foot.style.color = "#ffd166";
+    foot.querySelector(".cdot").style.background = "#ffd166";
+    foot.querySelector(".cdot").style.animation = "none";
+  }
 }
 
-/* ---------- Mini network graph (like video) ---------- */
-function growNetwork(canvas, baseColor) {
+/* ---------- Honest tool network (Fase 2) ----------
+ * Nodes ONLY from real events. No random nodes. No crawler bot.
+ * Center = this tool. Left = previous tool (temporal neighbor, NOT causal).
+ * Timestamps ambiguous/missing -> no line drawn (explicit, not fabricated).
+ * Pop-in once, then static. No continuous animation loop.
+ */
+var toolSequence = []; // [{tool, node, ts, card}] in arrival order, max 50
+
+function renderToolNetwork(canvas, info, prevInfo) {
   var dpr = window.devicePixelRatio || 1;
+  var parent = canvas.parentElement;
   function size() {
-    var r = canvas.parentElement.getBoundingClientRect();
-    canvas.width = r.width * dpr;
-    canvas.height = r.height * dpr;
+    var r = parent.getBoundingClientRect();
+    canvas.width = Math.max(1, r.width * dpr);
+    canvas.height = Math.max(1, r.height * dpr);
   }
   size();
   var ctx = canvas.getContext("2d");
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   var W = canvas.width / dpr, H = canvas.height / dpr;
   var cx = W / 2, cy = H / 2;
 
-  var nodes = [{ x: cx, y: cy, r: 7, color: baseColor, born: 0 }];
-  var links = [];
-  var crawler = { x: cx, y: cy, tx: cx, ty: cy, speed: 2.2 };
-  var targetCount = 8 + Math.floor(Math.random() * 5);
-  var spawnTimer = 0;
-  var dead = false;
-
-  function spawnNode() {
-    var ang = Math.random() * Math.PI * 2;
-    var dist = 30 + Math.random() * Math.min(W, H) * 0.36;
-    var x = cx + Math.cos(ang) * dist;
-    var y = cy + Math.sin(ang) * dist;
-    x = Math.max(14, Math.min(W - 14, x));
-    y = Math.max(14, Math.min(H - 14, y));
-    // link to random existing node
-    var parent = nodes[Math.floor(Math.random() * nodes.length)];
-    var color = NET_COLORS[Math.floor(Math.random() * NET_COLORS.length)];
-    var n = { x: x, y: y, r: 3 + Math.random() * 4, color: color, born: performance.now() };
-    nodes.push(n);
-    links.push({ a: parent, b: n });
-    // crawler heads to new node
-    crawler.tx = x; crawler.ty = y;
+  // Determine if temporal link is valid
+  var hasPrev = false, ambiguous = false;
+  if (prevInfo) {
+    if (!info.ts || !prevInfo.ts) {
+      ambiguous = true; // missing timestamp -> no line
+    } else if (prevInfo.ts > info.ts) {
+      ambiguous = true; // out of order -> no line
+    } else if (prevInfo.ts === info.ts) {
+      ambiguous = true; // same timestamp -> order unknown
+    } else {
+      hasPrev = true;
+    }
   }
 
-  function frame() {
-    if (dead) return;
-    if (!canvas.isConnected) { dead = true; return; }
+  var nodes = [];
+  // center: this tool
+  nodes.push({ x: cx, y: cy, r: 9, color: NODE_COLORS[info.node] || "#888",
+               label: info.tool, born: 0 });
+  // left: previous tool (temporal neighbor only)
+  var prevNode = null;
+  if (prevInfo && (hasPrev || ambiguous)) {
+    prevNode = { x: cx - Math.min(W * 0.28, 110), y: cy,
+                 r: 6, color: NODE_COLORS[prevInfo.node] || "#888",
+                 label: prevInfo.tool, born: 150 };
+    nodes.push(prevNode);
+  }
+
+  var start = performance.now();
+  var reduced = window.matchMedia &&
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  function draw(now) {
+    if (!canvas.isConnected) return;
+    var t = reduced ? 1 : Math.min(1, (now - start) / 500);
+    var ease = 1 - Math.pow(1 - t, 3);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, W, H);
-    var now = performance.now();
-
-    // spawn over ~2s
-    spawnTimer += 1 / 60;
-    if (nodes.length < targetCount && spawnTimer > 0.22) {
-      spawnTimer = 0;
-      spawnNode();
-    }
-
-    // links
-    links.forEach(function (lk) {
+    // temporal link: solid only when order is certain
+    if (prevNode && hasPrev) {
       ctx.beginPath();
-      ctx.moveTo(lk.a.x, lk.a.y);
-      ctx.lineTo(lk.b.x, lk.b.y);
-      ctx.strokeStyle = "rgba(140,160,200,0.28)";
+      ctx.moveTo(prevNode.x, prevNode.y);
+      ctx.lineTo(cx, cy);
+      ctx.strokeStyle = "rgba(140,160,200,0.4)";
+      ctx.lineWidth = 1.2;
+      ctx.stroke();
+    } else if (prevNode && ambiguous) {
+      // dashed = order uncertain, drawn explicitly as uncertain
+      ctx.beginPath();
+      ctx.moveTo(prevNode.x, prevNode.y);
+      ctx.lineTo(cx, cy);
+      ctx.setLineDash([4, 4]);
+      ctx.strokeStyle = "rgba(140,160,200,0.22)";
       ctx.lineWidth = 1;
       ctx.stroke();
-    });
-
-    // nodes (pop-in)
+      ctx.setLineDash([]);
+    }
     nodes.forEach(function (n) {
-      var age = (now - n.born) / 400;
-      var s = age >= 1 ? 1 : 1 - Math.pow(1 - age, 3);
+      var lt = Math.max(0, Math.min(1, (t * 500 - n.born) / 350));
+      var s = lt >= 1 ? 1 : 1 - Math.pow(1 - lt, 3);
       if (s <= 0) return;
       ctx.beginPath();
-      ctx.arc(n.x, n.y, n.r * s, 0, 7);
+      ctx.arc(n.x, n.y, Math.max(0.1, n.r * s), 0, 7);
       ctx.fillStyle = n.color;
       ctx.shadowColor = n.color;
-      ctx.shadowBlur = 9;
+      ctx.shadowBlur = 10;
       ctx.fill();
       ctx.shadowBlur = 0;
+      // label under node
+      if (s > 0.7) {
+        ctx.font = "9px " + 'monospace';
+        ctx.fillStyle = "rgba(180,190,210,0.75)";
+        ctx.textAlign = "center";
+        var lbl = n.label.length > 14 ? n.label.slice(0, 13) + "…" : n.label;
+        ctx.fillText(lbl, n.x, n.y + n.r + 13);
+      }
     });
-
-    // crawler bot
-    var dx = crawler.tx - crawler.x, dy = crawler.ty - crawler.y;
-    var d = Math.hypot(dx, dy);
-    if (d > 2) {
-      crawler.x += dx / d * Math.min(crawler.speed, d);
-      crawler.y += dy / d * Math.min(crawler.speed, d);
-    } else if (nodes.length > 1) {
-      var t = nodes[Math.floor(Math.random() * nodes.length)];
-      crawler.tx = t.x; crawler.ty = t.y;
-    }
-    ctx.beginPath();
-    ctx.arc(crawler.x, crawler.y, 4, 0, 7);
-    ctx.fillStyle = "#fff";
-    ctx.shadowColor = "#fff";
-    ctx.shadowBlur = 12;
-    ctx.fill();
-    ctx.shadowBlur = 0;
-
-    requestAnimationFrame(frame);
+    if (t < 1) requestAnimationFrame(draw);
+    // else: static. No loop. Honest stillness.
   }
-  requestAnimationFrame(frame);
+  requestAnimationFrame(draw);
+}
+
+/* ---------- Fase 3: Inter-card links + highlight ----------
+ * Lines connect cards in TEMPORAL order (from toolSequence timestamps).
+ * This is temporal adjacency, NOT causal dependency — never claimed otherwise.
+ * Only drawn when both cards exist in DOM and order is certain.
+ */
+var linkOverlay = document.getElementById("linkOverlay");
+var linkCtx = (linkOverlay && linkOverlay.getContext) ? linkOverlay.getContext("2d") : null;
+
+function drawInterCardLinks() {
+  if (!linkCtx || !linkOverlay) return;
+  var dpr = window.devicePixelRatio || 1;
+  linkOverlay.width = window.innerWidth * dpr;
+  linkOverlay.height = window.innerHeight * dpr;
+  linkCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  linkCtx.clearRect(0, 0, window.innerWidth, window.innerHeight);
+
+  // Build ordered list of live cards from toolSequence
+  var live = [];
+  for (var i = 0; i < toolSequence.length; i++) {
+    var s = toolSequence[i];
+    if (s.card && s.card.isConnected && cards.indexOf(s.card) !== -1) {
+      live.push(s);
+    }
+  }
+  // Draw lines between consecutive cards (temporal order)
+  for (var j = 0; j + 1 < live.length; j++) {
+    var a = live[j], b = live[j + 1];
+    // skip if timestamps ambiguous
+    if (!a.ts || !b.ts || a.ts > b.ts || a.ts === b.ts) continue;
+    var ra = a.card.getBoundingClientRect();
+    var rb = b.card.getBoundingClientRect();
+    var ax = ra.left + ra.width / 2, ay = ra.top + ra.height / 2;
+    var bx = rb.left + rb.width / 2, by = rb.top + rb.height / 2;
+    linkCtx.beginPath();
+    linkCtx.moveTo(ax, ay);
+    linkCtx.lineTo(bx, by);
+    linkCtx.strokeStyle = "rgba(53,224,255,0.14)";
+    linkCtx.lineWidth = 1;
+    linkCtx.stroke();
+  }
+}
+
+// Redraw links when layout changes
+window.addEventListener("resize", function () { drawInterCardLinks(); });
+
+/* Highlight: tool name glows while its tool is ACTIVE (real event only) */
+function setHighlight(card, on) {
+  if (!card) return;
+  var el = card.querySelector(".card-head .tool");
+  if (el) {
+    if (on) el.classList.add("lit");
+    else el.classList.remove("lit");
+  }
 }
 
 /* ---------- Brain (JEV) ---------- */
+var jevItemEl = document.getElementById("jevItem");
 function brainJudge(tool) {
   var isSystem = tool === "db" || tool === "muse.db";
   if (isSystem) stats.skipped++; else stats.kept++;
+  // JEV active item: shows LAST evaluated tool + decision (honest: not "processing",
+  // our evaluation is instant; this is a record, not a live claim)
+  if (jevItemEl) {
+    var short = tool.length > 18 ? tool.slice(0, 17) + "…" : tool;
+    jevItemEl.textContent = short + " → " + (isSystem ? "SKIPPED" : "KEPT");
+    jevItemEl.style.color = isSystem ? "#6f7683" : "#4ade80";
+  }
   updateStats();
   return !isSystem;
 }
@@ -230,32 +428,39 @@ function handleMessage(msg) {
   if (et === "TOOL_STARTED") {
     if (!brainJudge(tool)) return; // SKIPPED
     lastEventTs = Date.now();
+    spiderPulse(); // real event -> spider reacts
     stats.tools++;
     stats.nodes[node] = 1;
     updateStats();
     var card = makeCard(tool, node, ts);
+    setHighlight(card, true); // active tool glows (real event only)
+    drawInterCardLinks(); // temporal links, data-driven
     pendingCards[tool + ts] = card;
-    // auto-mark done after 4s if no completion arrives
+    // If no completion arrives: mark UNCERTAIN, never assume DONE.
+    // A timeout is not evidence of completion.
     setTimeout(function () {
       var c = pendingCards[tool + ts];
-      if (c && c.isConnected) markDone(c, true);
-    }, 4000);
+      if (c && c.isConnected) { markDone(c, null); setHighlight(c, false); }
+      delete pendingCards[tool + ts];
+    }, 8000);
   } else if (et === "TOOL_COMPLETED" || et === "TOOL_FAILED") {
     var ok = msg.success !== false;
     // mark most recent pending card for this tool
     for (var k in pendingCards) {
       if (k.indexOf(tool) === 0) {
         var c = pendingCards[k];
-        if (c && c.isConnected) markDone(c, ok);
+        if (c && c.isConnected) { markDone(c, ok); setHighlight(c, false); }
         delete pendingCards[k];
         break;
       }
     }
     if (!ok && tool !== "db") {
       stats.tools++;
+      stats.failed++;
       stats.nodes["ERROR"] = 1;
       updateStats();
-      makeCard(tool + " ✗", "ERROR", ts);
+      var ec = makeCard(tool + " ✗", "ERROR", ts);
+      drawInterCardLinks();
     }
   } else if (et === "TASK_STARTED" || et === "TASK_COMPLETED") {
     var tn = et === "TASK_STARTED" ? "TASK" : "COMPLETE";
@@ -264,6 +469,7 @@ function handleMessage(msg) {
     stats.nodes[tn] = 1;
     updateStats();
     makeCard(tool, tn, ts);
+    drawInterCardLinks();
   }
   updateStats();
 }
