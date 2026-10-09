@@ -3,30 +3,56 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>CRAWLER — SPIDER Telemetry</title>
+<title>SPIDER by Erlangga — AI Agent Observability</title>
 <link rel="stylesheet" href="style.css">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='14' r='6' fill='%2335e0ff'/%3E%3Ccircle cx='16' cy='24' r='4' fill='%2335e0ff'/%3E%3C/svg%3E">
 </head>
 <body>
-<div id="cosmos">
-  <div id="spacePhoto"></div>
-</div>
 
-<header id="statsbar">
-  <div class="stat"><span class="num" id="stTools">0</span><span class="lbl">TOOLS</span></div>
-  <div class="stat"><span class="num" id="stNodes">0</span><span class="lbl">NODES</span></div>
-  <div class="stat"><span class="num" id="stEvents">0</span><span class="lbl">EVENTS</span></div>
-  <div class="stat"><span class="num kept" id="stKept">0</span><span class="lbl">KEPT</span></div>
-  <div class="stat"><span class="num skipped" id="stSkipped">0</span><span class="lbl">SKIPPED</span></div>
+<header id="topbar">
+  <div id="brand">
+    <svg id="spiderMark" viewBox="0 0 48 48" width="30" height="30" aria-label="SPIDER status">
+      <g stroke="#35e0ff" stroke-width="2" fill="none" stroke-linecap="round">
+        <line x1="14" y1="16" x2="4" y2="10"/><line x1="14" y1="22" x2="3" y2="22"/>
+        <line x1="14" y1="28" x2="4" y2="34"/><line x1="34" y1="16" x2="44" y2="10"/>
+        <line x1="34" y1="22" x2="45" y2="22"/><line x1="34" y1="28" x2="44" y2="34"/>
+      </g>
+      <ellipse cx="24" cy="18" rx="7" ry="8" fill="#0a1620" stroke="#35e0ff" stroke-width="2"/>
+      <ellipse cx="24" cy="32" rx="5" ry="7" fill="#0a1620" stroke="#35e0ff" stroke-width="2"/>
+      <circle cx="21.5" cy="16" r="1.6" fill="#ff4fd8"/><circle cx="26.5" cy="16" r="1.6" fill="#ff4fd8"/>
+    </svg>
+    <div id="brandText">
+      <span id="brandName">SPIDER</span>
+      <span id="brandBy">by Erlangga</span>
+    </div>
+    <span id="agentStatus" class="idle">IDLE</span>
+  </div>
+  <div id="statsbar">
+    <div class="stat"><span class="num" id="stTools">0</span><span class="lbl">TOOLS</span></div>
+    <div class="stat"><span class="num" id="stNodes">0</span><span class="lbl">NODES</span></div>
+    <div class="stat"><span class="num" id="stEvents">0</span><span class="lbl">EVENTS</span></div>
+    <div class="stat"><span class="num kept" id="stKept">0</span><span class="lbl">KEPT</span></div>
+    <div class="stat"><span class="num skipped" id="stSkipped">0</span><span class="lbl">SKIPPED</span></div>
+  </div>
 </header>
 
 <main id="cardGrid"></main>
+<canvas id="linkOverlay"></canvas>
 
 <footer id="jevbar">
   <span class="jev-q">is this tool worth visualizing?</span>
+  <span class="jev-item" id="jevItem">—</span>
   <span class="jev-count"><b id="jevKept">0</b> KEPT</span>
   <span class="jev-count"><b id="jevSkipped">0</b> SKIPPED</span>
   <span id="connPill"><span id="connDot"></span><span id="connText">connecting</span></span>
 </footer>
+
+<div id="sessionPanel" hidden>
+  <div id="sessionHead">SESSION SUMMARY</div>
+  <div id="sessionStatus">—</div>
+  <div id="sessionStats"></div>
+  <button id="sessionClose">×</button>
+</div>
 
 <script src="app.js"></script>
 </body>
