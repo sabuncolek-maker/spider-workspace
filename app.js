@@ -136,8 +136,10 @@ function closeSessionPanel() { if (sessionPanel) sessionPanel.hidden = true; }
     }
   });
   document.addEventListener("keydown", function (e) {
-    if (e.key === "Escape") closeSessionPanel();
+    if (e.key === "Escape") { closeSessionPanel(); hideDetail(); }
   });
+  var dc = document.getElementById("detailClose");
+  if (dc) dc.addEventListener("click", hideDetail);
 })();
 function updateStats() {
   tweenNumber("stTools", stats.tools);
@@ -177,217 +179,270 @@ function spiderPulse() {
   }, 8000);
 }
 
-/* ---------- Cards ---------- */
-var grid = document.getElementById("cardGrid");
-var MAX_CARDS = 6;
-var cards = [];
-
-function makeCard(tool, node, ts) {
-  var color = NODE_COLORS[node] || "#888";
-  var card = document.createElement("div");
-  card.className = "page-card";
-  var time = new Date(ts).toTimeString().slice(0, 8);
-  card.innerHTML =
-    '<div class="card-head">' +
-      '<span class="tool">' + esc(tool) + '</span>' +
-      '<span class="node" style="color:' + color + '">' + esc(node) + '</span>' +
-      '<span class="time">' + time + '</span>' +
-    '</div>' +
-    '<div class="card-net"><canvas></canvas></div>' +
-    '<div class="card-foot"><span class="cdot"></span><span class="st">CRAWLING</span></div>';
-  grid.insertBefore(card, grid.firstChild);
-  cards.unshift(card);
-  // remove oldest
-  while (cards.length > MAX_CARDS) {
-    var old = cards.pop();
-    old.classList.add("out");
-    (function (el) { setTimeout(function () { el.remove(); drawInterCardLinks(); }, 420); })(old);
-  }
-  // honest network: this tool + temporal predecessor (NOT causal)
-  var info = { tool: tool, node: node, ts: ts };
-  var prevInfo = toolSequence.length ? toolSequence[toolSequence.length - 1] : null;
-  // don't link a card to itself (same tool+ts arriving twice)
-  if (prevInfo && prevInfo.tool === tool && prevInfo.ts === ts) prevInfo = null;
-  var canvas = card.querySelector("canvas");
-  renderToolNetwork(canvas, info, prevInfo);
-  toolSequence.push({ tool: tool, node: node, ts: ts, card: card });
-  if (toolSequence.length > 50) toolSequence.shift();
-  return card;
-}
-
-function markDone(card, ok) {
-  if (!card || !card.isConnected) return;
-  var foot = card.querySelector(".card-foot");
-  if (!foot || foot.dataset.final) return; // don't overwrite a final state
-  foot.dataset.final = "1";
-  foot.classList.add("done");
-  var st = foot.querySelector(".st");
-  if (ok === true) { st.textContent = "DONE"; }
-  else if (ok === false) { st.textContent = "FAILED"; foot.style.color = "#f87171"; }
-  else { // uncertain: no completion event received, do NOT claim DONE
-    st.textContent = "UNCERTAIN";
-    foot.style.color = "#ffd166";
-    foot.querySelector(".cdot").style.background = "#ffd166";
-    foot.querySelector(".cdot").style.animation = "none";
-  }
-}
-
-/* ---------- Honest tool network (Fase 2) ----------
- * Nodes ONLY from real events. No random nodes. No crawler bot.
- * Center = this tool. Left = previous tool (temporal neighbor, NOT causal).
- * Timestamps ambiguous/missing -> no line drawn (explicit, not fabricated).
- * Pop-in once, then static. No continuous animation loop.
+/* ================= SESSION NETWORK (Network-Centric) =================
+ * Satu jaringan persistent untuk seluruh sesi. Setiap TOOL_STARTED = 1 node.
+ * Edge = urutan temporal (BUKAN kausal). Tidak ada node palsu.
+ * Force-directed layout yang settle ke statis saat tidak ada event.
  */
-var toolSequence = []; // [{tool, node, ts, card}] in arrival order, max 50
+var netCanvas = document.getElementById("networkCanvas");
+var netCtx = (netCanvas && netCanvas.getContext) ? netCanvas.getContext("2d") : null;
+var netNodes = [];   // {id, tool, cat, ts, x, y, vx, vy, status, born}
+var netEdges = [];   // {a, b} — temporal sequence
+var netSeq = [];     // node ids in arrival order
+var netMaxNodes = 120;
+var netRunning = false;
+var netSelected = null;
 
-function renderToolNetwork(canvas, info, prevInfo) {
+function netResize() {
+  if (!netCanvas) return;
   var dpr = window.devicePixelRatio || 1;
-  var parent = canvas.parentElement;
-  function size() {
-    var r = parent.getBoundingClientRect();
-    canvas.width = Math.max(1, r.width * dpr);
-    canvas.height = Math.max(1, r.height * dpr);
+  var r = netCanvas.parentElement.getBoundingClientRect();
+  netCanvas.width = Math.max(1, r.width * dpr);
+  netCanvas.height = Math.max(1, r.height * dpr);
+}
+window.addEventListener("resize", netResize);
+
+function netAddNode(tool, cat, ts, eventId) {
+  if (!netCtx) return null;
+  // Dedup: same eventId already has a node
+  for (var i = 0; i < netNodes.length; i++) {
+    if (netNodes[i].eid === eventId) return netNodes[i];
   }
-  size();
-  var ctx = canvas.getContext("2d");
-  var W = canvas.width / dpr, H = canvas.height / dpr;
+  netResize();
+  var dpr = window.devicePixelRatio || 1;
+  var W = netCanvas.width / dpr, H = netCanvas.height / dpr;
+  // Start near previous node (or center if first)
+  var px = W / 2, py = H / 2;
+  if (netSeq.length) {
+    var prev = netNodes[netSeq[netSeq.length - 1]];
+    if (prev) { px = prev.x + 40; py = prev.y; } // offset right, deterministic
+    px = Math.max(60, Math.min(W - 60, px));
+    py = Math.max(60, Math.min(H - 60, py));
+  }
+  var node = {
+    id: netNodes.length, eid: eventId, tool: tool, cat: cat, ts: ts,
+    x: px, y: py, vx: 0, vy: 0,
+    status: "active", born: performance.now()
+  };
+  netNodes.push(node);
+  // Edge to previous (temporal, not causal)
+  if (netSeq.length) {
+    var prevId = netSeq[netSeq.length - 1];
+    var prevNode = netNodes[prevId];
+    if (prevNode && prevNode.ts && ts && prevNode.ts <= ts) {
+      netEdges.push({ a: prevId, b: node.id });
+    }
+  }
+  netSeq.push(node.id);
+  // Cap: fade oldest to faint but keep (never delete history abruptly)
+  if (netNodes.length > netMaxNodes) {
+    var drop = netNodes.length - netMaxNodes;
+    for (var d = 0; d < drop; d++) netNodes[d].faded = true;
+  }
+  hideEmptyHint();
+  netKick();
+  return node;
+}
+
+function netSetStatus(eventId, status) {
+  for (var i = 0; i < netNodes.length; i++) {
+    if (netNodes[i].eid === eventId) {
+      netNodes[i].status = status;
+      if (netSelected && netSelected.eid === eventId) showDetail(netNodes[i]);
+      break;
+    }
+  }
+}
+
+function hideEmptyHint() {
+  var h = document.getElementById("emptyHint");
+  if (h) h.style.display = "none";
+}
+
+/* Force-directed layout: repulsion + springs, settles to static */
+function netPhysics() {
+  var dpr = window.devicePixelRatio || 1;
+  var W = netCanvas.width / dpr, H = netCanvas.height / dpr;
   var cx = W / 2, cy = H / 2;
-
-  // Determine if temporal link is valid
-  var hasPrev = false, ambiguous = false;
-  if (prevInfo) {
-    if (!info.ts || !prevInfo.ts) {
-      ambiguous = true; // missing timestamp -> no line
-    } else if (prevInfo.ts > info.ts) {
-      ambiguous = true; // out of order -> no line
-    } else if (prevInfo.ts === info.ts) {
-      ambiguous = true; // same timestamp -> order unknown
-    } else {
-      hasPrev = true;
+  var energy = 0;
+  // repulsion (O(n^2) but n<=120, fine)
+  for (var i = 0; i < netNodes.length; i++) {
+    var a = netNodes[i];
+    if (a.faded) continue;
+    for (var j = i + 1; j < netNodes.length; j++) {
+      var b = netNodes[j];
+      if (b.faded) continue;
+      var dx = a.x - b.x, dy = a.y - b.y;
+      var d2 = dx * dx + dy * dy + 0.1;
+      var d = Math.sqrt(d2);
+      var f = Math.min(800 / d2, 2);
+      var fx = dx / d * f, fy = dy / d * f;
+      a.vx += fx * 0.5; a.vy += fy * 0.5;
+      b.vx -= fx * 0.5; b.vy -= fy * 0.5;
     }
   }
-
-  var nodes = [];
-  // center: this tool
-  nodes.push({ x: cx, y: cy, r: 9, color: NODE_COLORS[info.node] || "#888",
-               label: info.tool, born: 0 });
-  // left: previous tool (temporal neighbor only)
-  var prevNode = null;
-  if (prevInfo && (hasPrev || ambiguous)) {
-    prevNode = { x: cx - Math.min(W * 0.28, 110), y: cy,
-                 r: 6, color: NODE_COLORS[prevInfo.node] || "#888",
-                 label: prevInfo.tool, born: 150 };
-    nodes.push(prevNode);
-  }
-
-  var start = performance.now();
-  var reduced = window.matchMedia &&
-    window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  function draw(now) {
-    if (!canvas.isConnected) return;
-    var t = reduced ? 1 : Math.min(1, (now - start) / 500);
-    var ease = 1 - Math.pow(1 - t, 3);
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.clearRect(0, 0, W, H);
-    // temporal link: solid only when order is certain
-    if (prevNode && hasPrev) {
-      ctx.beginPath();
-      ctx.moveTo(prevNode.x, prevNode.y);
-      ctx.lineTo(cx, cy);
-      ctx.strokeStyle = "rgba(140,160,200,0.4)";
-      ctx.lineWidth = 1.2;
-      ctx.stroke();
-    } else if (prevNode && ambiguous) {
-      // dashed = order uncertain, drawn explicitly as uncertain
-      ctx.beginPath();
-      ctx.moveTo(prevNode.x, prevNode.y);
-      ctx.lineTo(cx, cy);
-      ctx.setLineDash([4, 4]);
-      ctx.strokeStyle = "rgba(140,160,200,0.22)";
-      ctx.lineWidth = 1;
-      ctx.stroke();
-      ctx.setLineDash([]);
-    }
-    nodes.forEach(function (n) {
-      var lt = Math.max(0, Math.min(1, (t * 500 - n.born) / 350));
-      var s = lt >= 1 ? 1 : 1 - Math.pow(1 - lt, 3);
-      if (s <= 0) return;
-      ctx.beginPath();
-      ctx.arc(n.x, n.y, Math.max(0.1, n.r * s), 0, 7);
-      ctx.fillStyle = n.color;
-      ctx.shadowColor = n.color;
-      ctx.shadowBlur = 10;
-      ctx.fill();
-      ctx.shadowBlur = 0;
-      // label under node
-      if (s > 0.7) {
-        ctx.font = "9px " + 'monospace';
-        ctx.fillStyle = "rgba(180,190,210,0.75)";
-        ctx.textAlign = "center";
-        var lbl = n.label.length > 14 ? n.label.slice(0, 13) + "…" : n.label;
-        ctx.fillText(lbl, n.x, n.y + n.r + 13);
-      }
-    });
-    if (t < 1) requestAnimationFrame(draw);
-    // else: static. No loop. Honest stillness.
-  }
-  requestAnimationFrame(draw);
+  // springs along edges
+  netEdges.forEach(function (e) {
+    var a = netNodes[e.a], b = netNodes[e.b];
+    if (!a || !b || a.faded || b.faded) return;
+    var dx = b.x - a.x, dy = b.y - a.y;
+    var d = Math.sqrt(dx * dx + dy * dy) || 1;
+    var target = 90;
+    var f = (d - target) * 0.02;
+    var fx = dx / d * f, fy = dy / d * f;
+    a.vx += fx; a.vy += fy; b.vx -= fx; b.vy -= fy;
+  });
+  // gentle centering
+  netNodes.forEach(function (n) {
+    if (n.faded) return;
+    n.vx += (cx - n.x) * 0.002;
+    n.vy += (cy - n.y) * 0.002;
+    n.vx *= 0.88; n.vy *= 0.88; // damping
+    n.x += n.vx; n.y += n.vy;
+    // bounds
+    n.x = Math.max(30, Math.min(W - 30, n.x));
+    n.y = Math.max(30, Math.min(H - 30, n.y));
+    energy += Math.abs(n.vx) + Math.abs(n.vy);
+  });
+  return energy;
 }
 
-/* ---------- Fase 3: Inter-card links + highlight ----------
- * Lines connect cards in TEMPORAL order (from toolSequence timestamps).
- * This is temporal adjacency, NOT causal dependency — never claimed otherwise.
- * Only drawn when both cards exist in DOM and order is certain.
- */
-var linkOverlay = document.getElementById("linkOverlay");
-var linkCtx = (linkOverlay && linkOverlay.getContext) ? linkOverlay.getContext("2d") : null;
-
-function drawInterCardLinks() {
-  if (!linkCtx || !linkOverlay) return;
+function netDraw(now) {
+  if (!netCtx) { netRunning = false; return; }
   var dpr = window.devicePixelRatio || 1;
-  linkOverlay.width = window.innerWidth * dpr;
-  linkOverlay.height = window.innerHeight * dpr;
-  linkCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  linkCtx.clearRect(0, 0, window.innerWidth, window.innerHeight);
+  var W = netCanvas.width / dpr, H = netCanvas.height / dpr;
+  netCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  netCtx.clearRect(0, 0, W, H);
+  var reduced = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-  // Build ordered list of live cards from toolSequence
-  var live = [];
-  for (var i = 0; i < toolSequence.length; i++) {
-    var s = toolSequence[i];
-    if (s.card && s.card.isConnected && cards.indexOf(s.card) !== -1) {
-      live.push(s);
+  // edges
+  netEdges.forEach(function (e) {
+    var a = netNodes[e.a], b = netNodes[e.b];
+    if (!a || !b) return;
+    var alpha = (a.faded || b.faded) ? 0.06 : 0.28;
+    netCtx.beginPath();
+    netCtx.moveTo(a.x, a.y);
+    netCtx.lineTo(b.x, b.y);
+    netCtx.strokeStyle = "rgba(140,160,200," + alpha + ")";
+    netCtx.lineWidth = 1;
+    netCtx.stroke();
+  });
+
+  // nodes
+  netNodes.forEach(function (n) {
+    var age = reduced ? 1 : Math.min(1, (now - n.born) / 450);
+    var s = age >= 1 ? 1 : 1 - Math.pow(1 - age, 3);
+    if (s <= 0) return;
+    var color = NODE_COLORS[n.cat] || "#888";
+    var r = (n.faded ? 3 : 6 + (n.status === "active" ? 2 : 0)) * s;
+    var alpha = n.faded ? 0.25 : 1;
+    // glow for active/recent
+    if (!n.faded && n.status === "active") {
+      netCtx.beginPath();
+      netCtx.arc(n.x, n.y, r + 6, 0, 7);
+      netCtx.fillStyle = color + "22";
+      netCtx.fill();
     }
-  }
-  // Draw lines between consecutive cards (temporal order)
-  for (var j = 0; j + 1 < live.length; j++) {
-    var a = live[j], b = live[j + 1];
-    // skip if timestamps ambiguous
-    if (!a.ts || !b.ts || a.ts > b.ts || a.ts === b.ts) continue;
-    var ra = a.card.getBoundingClientRect();
-    var rb = b.card.getBoundingClientRect();
-    var ax = ra.left + ra.width / 2, ay = ra.top + ra.height / 2;
-    var bx = rb.left + rb.width / 2, by = rb.top + rb.height / 2;
-    linkCtx.beginPath();
-    linkCtx.moveTo(ax, ay);
-    linkCtx.lineTo(bx, by);
-    linkCtx.strokeStyle = "rgba(53,224,255,0.14)";
-    linkCtx.lineWidth = 1;
-    linkCtx.stroke();
+    netCtx.beginPath();
+    netCtx.arc(n.x, n.y, Math.max(0.5, r), 0, 7);
+    netCtx.globalAlpha = alpha;
+    netCtx.fillStyle = color;
+    netCtx.shadowColor = color;
+    netCtx.shadowBlur = n.faded ? 0 : 8;
+    netCtx.fill();
+    netCtx.shadowBlur = 0;
+    // status ring
+    if (!n.faded && n.status !== "active") {
+      netCtx.beginPath();
+      netCtx.arc(n.x, n.y, r + 3, 0, 7);
+      netCtx.strokeStyle = n.status === "done" ? "#4ade80" :
+                           n.status === "failed" ? "#f87171" : "#ffd166";
+      netCtx.lineWidth = 1.5;
+      netCtx.stroke();
+    }
+    // selection ring
+    if (netSelected === n) {
+      netCtx.beginPath();
+      netCtx.arc(n.x, n.y, r + 7, 0, 7);
+      netCtx.strokeStyle = "#fff";
+      netCtx.lineWidth = 1;
+      netCtx.stroke();
+    }
+    // label for recent nodes only (avoid clutter)
+    if (!n.faded && s > 0.8 && netNodes.length < 40) {
+      netCtx.font = "10px monospace";
+      netCtx.fillStyle = "rgba(180,190,210,0.8)";
+      netCtx.textAlign = "center";
+      var lbl = n.tool.length > 12 ? n.tool.slice(0, 11) + "…" : n.tool;
+      netCtx.fillText(lbl, n.x, n.y + r + 14);
+    }
+    netCtx.globalAlpha = 1;
+  });
+
+  // physics: run until settled, then stop (honest stillness)
+  if (!reduced) {
+    var energy = netPhysics();
+    if (energy > 0.5) {
+      requestAnimationFrame(netDraw);
+    } else {
+      netRunning = false;
+      // final static render
+    }
+  } else {
+    netRunning = false;
   }
 }
 
-// Redraw links when layout changes
-window.addEventListener("resize", function () { drawInterCardLinks(); });
-
-/* Highlight: tool name glows while its tool is ACTIVE (real event only) */
-function setHighlight(card, on) {
-  if (!card) return;
-  var el = card.querySelector(".card-head .tool");
-  if (el) {
-    if (on) el.classList.add("lit");
-    else el.classList.remove("lit");
+function netKick() {
+  if (!netRunning && netCtx) {
+    netRunning = true;
+    requestAnimationFrame(netDraw);
+  } else if (netCtx) {
+    // already running; ensure one fresh frame for pop-in
+    requestAnimationFrame(netDraw);
   }
 }
+
+/* Click node -> detail panel (secondary, not dominating) */
+if (netCanvas) {
+  netCanvas.addEventListener("click", function (ev) {
+    var r = netCanvas.getBoundingClientRect();
+    var mx = ev.clientX - r.left, my = ev.clientY - r.top;
+    var best = null, bestD = 24;
+    netNodes.forEach(function (n) {
+      if (n.faded) return;
+      var d = Math.hypot(n.x - mx, n.y - my);
+      if (d < bestD) { bestD = d; best = n; }
+    });
+    netSelected = best;
+    if (best) showDetail(best);
+    else hideDetail();
+    netKick();
+  });
+}
+
+function showDetail(n) {
+  var p = document.getElementById("detailPanel");
+  if (!p) return;
+  document.getElementById("detailTool").textContent = n.tool;
+  var color = NODE_COLORS[n.cat] || "#888";
+  document.getElementById("detailMeta").innerHTML =
+    "category <b style='color:" + color + "'>" + esc(n.cat) + "</b><br>" +
+    "time <b>" + new Date(n.ts).toTimeString().slice(0, 8) + "</b><br>" +
+    "event <b>" + esc(String(n.eid || "—")).slice(0, 20) + "</b>";
+  var st = document.getElementById("detailStatus");
+  var label = { active: "RUNNING", done: "DONE", failed: "FAILED", uncertain: "UNCERTAIN" }[n.status] || n.status;
+  st.textContent = label;
+  st.style.color = n.status === "done" ? "#4ade80" : n.status === "failed" ? "#f87171" :
+                   n.status === "uncertain" ? "#ffd166" : "#35e0ff";
+  p.hidden = false;
+}
+function hideDetail() {
+  var p = document.getElementById("detailPanel");
+  if (p) p.hidden = true;
+  netSelected = null;
+}
+
 
 /* ---------- Brain (JEV) ---------- */
 var jevItemEl = document.getElementById("jevItem");
@@ -405,9 +460,9 @@ function brainJudge(tool) {
   return !isSystem;
 }
 
-/* ---------- Events ---------- */
+/* ---------- Events -> Network ---------- */
 var seenEvents = {};
-var pendingCards = {}; // tool -> card (for DONE marking)
+var pendingNodes = {}; // eventId -> node (for status updates)
 var lastEventTs = 0;
 var STALE_MS = 60000;
 
@@ -432,35 +487,47 @@ function handleMessage(msg) {
     stats.tools++;
     stats.nodes[node] = 1;
     updateStats();
-    var card = makeCard(tool, node, ts);
-    setHighlight(card, true); // active tool glows (real event only)
-    drawInterCardLinks(); // temporal links, data-driven
-    pendingCards[tool + ts] = card;
+    var n = netAddNode(tool, node, ts, eid);
+    if (n && eid) pendingNodes[eid] = n;
     // If no completion arrives: mark UNCERTAIN, never assume DONE.
-    // A timeout is not evidence of completion.
-    setTimeout(function () {
-      var c = pendingCards[tool + ts];
-      if (c && c.isConnected) { markDone(c, null); setHighlight(c, false); }
-      delete pendingCards[tool + ts];
-    }, 8000);
+    if (eid) {
+      (function (id) {
+        setTimeout(function () {
+          var pn = pendingNodes[id];
+          if (pn && pn.status === "active") netSetStatus(id, "uncertain");
+          delete pendingNodes[id];
+        }, 8000);
+      })(eid);
+    }
   } else if (et === "TOOL_COMPLETED" || et === "TOOL_FAILED") {
     var ok = msg.success !== false;
-    // mark most recent pending card for this tool
-    for (var k in pendingCards) {
-      if (k.indexOf(tool) === 0) {
-        var c = pendingCards[k];
-        if (c && c.isConnected) { markDone(c, ok); setHighlight(c, false); }
-        delete pendingCards[k];
-        break;
+    // Match by eventId first, then by tool name (fallback for unpaired events)
+    var matched = false;
+    if (eid && pendingNodes[eid]) {
+      netSetStatus(eid, ok ? "done" : "failed");
+      delete pendingNodes[eid];
+      matched = true;
+    } else {
+      for (var k in pendingNodes) {
+        if (pendingNodes[k].tool === tool && pendingNodes[k].status === "active") {
+          netSetStatus(k, ok ? "done" : "failed");
+          delete pendingNodes[k];
+          matched = true;
+          break;
+        }
       }
     }
-    if (!ok && tool !== "db") {
+    if (!ok && tool !== "db" && !matched) {
+      // Failed without a prior START: create node directly as failed
       stats.tools++;
       stats.failed++;
       stats.nodes["ERROR"] = 1;
       updateStats();
-      var ec = makeCard(tool + " ✗", "ERROR", ts);
-      drawInterCardLinks();
+      var en = netAddNode(tool, "ERROR", ts, eid);
+      if (en) netSetStatus(eid || ("err-" + ts), "failed");
+    } else if (!ok) {
+      stats.failed++;
+      updateStats();
     }
   } else if (et === "TASK_STARTED" || et === "TASK_COMPLETED") {
     var tn = et === "TASK_STARTED" ? "TASK" : "COMPLETE";
@@ -468,8 +535,7 @@ function handleMessage(msg) {
     stats.tools++;
     stats.nodes[tn] = 1;
     updateStats();
-    makeCard(tool, tn, ts);
-    drawInterCardLinks();
+    netAddNode(tool, tn, ts, eid);
   }
   updateStats();
 }
@@ -503,7 +569,7 @@ function pollState() {
       if (tool && brainJudge(tool)) {
         var node = toolToNode(tool);
         stats.tools++; stats.nodes[node] = 1; updateStats();
-        makeCard(tool, node, ts);
+        netAddNode(tool, node, ts, "poll-" + ts);
       }
     }).catch(function () {});
 }

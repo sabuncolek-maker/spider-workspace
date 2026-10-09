@@ -1,6 +1,5 @@
-/* ================= SPIDER by Erlangga — Fase 1: Visual Foundation =================
- * Hitam pekat (video referensi). Tanpa nebula dekoratif.
- * Header: branding + spider indikator status + stats bar.
+/* ================= SPIDER by Erlangga — Network-Centric =================
+ * Jaringan adalah pusat perhatian. Hitam pekat. Tanpa kartu dominan.
  */
 :root {
   --bg: #000000;
@@ -21,7 +20,7 @@
 html, body { height: 100%; overflow: hidden; }
 body { background: var(--bg); color: var(--ink); font-family: var(--sans); }
 
-/* ---------- Header: brand + stats ---------- */
+/* ---------- Header ---------- */
 #topbar {
   position: fixed; top: 0; left: 0; right: 0; z-index: 10;
   display: flex; align-items: center; justify-content: space-between;
@@ -29,109 +28,66 @@ body { background: var(--bg); color: var(--ink); font-family: var(--sans); }
   background: rgba(0, 0, 0, 0.92);
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
-#brand { display: flex; align-items: center; gap: 12px; }
+#brand { display: flex; align-items: center; gap: 12px; cursor: pointer; }
 #spiderMark { flex-shrink: 0; transition: filter 0.3s; }
 #spiderMark.active { filter: drop-shadow(0 0 6px rgba(53, 224, 255, 0.9)); }
 #spiderMark.active .spider-legs { animation: legTwitch 0.6s ease-in-out infinite; }
 @keyframes legTwitch { 50% { transform: translateY(1px); } }
 #brandText { display: flex; flex-direction: column; line-height: 1.1; }
-#brandName {
-  font-family: var(--mono); font-weight: 800; font-size: 17px;
-  letter-spacing: 0.28em; color: #fff;
-}
-#brandBy {
-  font-family: var(--mono); font-size: 10px; letter-spacing: 0.18em;
-  color: var(--faint);
-}
+#brandName { font-family: var(--mono); font-weight: 800; font-size: 17px; letter-spacing: 0.28em; color: #fff; }
+#brandBy { font-family: var(--mono); font-size: 10px; letter-spacing: 0.18em; color: var(--faint); }
 #agentStatus {
   font-family: var(--mono); font-size: 10px; letter-spacing: 0.2em;
   padding: 4px 10px; border-radius: 10px; margin-left: 6px;
   border: 1px solid var(--faint); color: var(--faint);
 }
 #agentStatus.working { border-color: var(--cyan); color: var(--cyan); }
-#agentStatus.idle { border-color: var(--faint); color: var(--faint); }
-
 #statsbar { display: flex; gap: 34px; }
 .stat { text-align: center; min-width: 60px; }
-.stat .num {
-  display: block; font-family: var(--mono); font-size: 24px; font-weight: 800;
-  color: #fff; font-variant-numeric: tabular-nums; line-height: 1;
-}
+.stat .num { display: block; font-family: var(--mono); font-size: 24px; font-weight: 800; color: #fff; font-variant-numeric: tabular-nums; line-height: 1; }
 .stat .num.kept { color: var(--green); }
 .stat .num.skipped { color: var(--gray); }
-.stat .lbl {
-  display: block; font-family: var(--mono); font-size: 9px; letter-spacing: 0.3em;
-  color: var(--dim); margin-top: 4px;
-}
+.stat .lbl { display: block; font-family: var(--mono); font-size: 9px; letter-spacing: 0.3em; color: var(--dim); margin-top: 4px; }
 
-/* ---------- Card grid (multi-panel workspace) ---------- */
-#cardGrid {
-  position: fixed; inset: 0; z-index: 1;
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  grid-template-rows: repeat(2, 1fr);
-  gap: 12px;
-  padding: 76px 16px 64px;
+/* ---------- Workspace: network canvas fills viewport ---------- */
+#workspace { position: fixed; inset: 0; z-index: 1; }
+#networkCanvas { position: absolute; inset: 0; width: 100%; height: 100%; cursor: crosshair; }
+#emptyHint {
+  position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+  font-family: var(--mono); font-size: 13px; letter-spacing: 0.2em;
+  color: var(--faint); pointer-events: none;
+  animation: hintPulse 3s ease-in-out infinite;
 }
-#linkOverlay {
-  position: fixed; inset: 0; z-index: 2;
-  pointer-events: none;
+@keyframes hintPulse { 50% { opacity: 0.4; } }
+
+/* Detail panel: slides in on node click, does NOT dominate */
+#detailPanel {
+  position: absolute; z-index: 5;
+  top: 76px; right: 16px; width: 260px;
+  background: rgba(10, 13, 18, 0.94);
+  border: 1px solid rgba(53, 224, 255, 0.3);
+  border-radius: 10px; padding: 16px;
+  font-family: var(--mono); font-size: 12px;
+  animation: slideIn 0.25s ease-out;
 }
-.page-card {
-  position: relative; z-index: 3;
-  background: var(--panel);
-  border: 1px solid rgba(255, 255, 255, 0.09);
-  border-radius: 10px;
-  overflow: hidden;
-  display: flex; flex-direction: column;
-  animation: cardIn 0.4s cubic-bezier(0.2, 0.9, 0.3, 1.1);
-}
-@keyframes cardIn {
-  from { opacity: 0; transform: scale(0.94) translateY(8px); }
-  to { opacity: 1; transform: none; }
-}
-.page-card.out { animation: cardOut 0.35s ease-in forwards; }
-@keyframes cardOut { to { opacity: 0; transform: scale(0.92); } }
-.card-head {
-  display: flex; justify-content: space-between; align-items: center;
-  padding: 9px 12px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-  font-family: var(--mono); font-size: 11px;
-}
-.card-head .tool { color: #fff; font-weight: 700; transition: text-shadow 0.3s; }
-.card-head .tool.lit { text-shadow: 0 0 8px currentColor; }
-.card-head .node {
-  font-size: 9px; letter-spacing: 0.18em; padding: 3px 9px; border-radius: 12px;
-  border: 1px solid currentColor;
-}
-.card-head .time { color: var(--faint); font-size: 10px; }
-.card-net { flex: 1; position: relative; min-height: 0; }
-.card-net canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
-.card-foot {
-  display: flex; align-items: center; gap: 8px;
-  padding: 7px 12px;
-  font-family: var(--mono); font-size: 10px; letter-spacing: 0.14em;
-  color: var(--dim); border-top: 1px solid rgba(255, 255, 255, 0.06);
-}
-.card-foot .cdot { width: 7px; height: 7px; border-radius: 50%; background: var(--cyan); animation: blink 1s infinite; }
-.card-foot.done .cdot { background: var(--green); animation: none; }
-.card-foot.done { color: var(--green); }
-@keyframes blink { 50% { opacity: 0.35; } }
+#detailPanel[hidden] { display: none; }
+@keyframes slideIn { from { opacity: 0; transform: translateX(20px); } }
+#detailClose { position: absolute; top: 6px; right: 10px; background: none; border: none; color: var(--faint); font-size: 18px; cursor: pointer; }
+#detailTool { font-size: 15px; font-weight: 800; color: #fff; margin-bottom: 8px; word-break: break-all; }
+#detailMeta { color: var(--dim); line-height: 1.8; margin-bottom: 8px; }
+#detailMeta b { color: var(--ink); }
+#detailStatus { font-weight: 700; letter-spacing: 0.14em; }
 
 /* ---------- JEV bar ---------- */
 #jevbar {
   position: fixed; bottom: 0; left: 0; right: 0; z-index: 10;
   display: flex; align-items: center; justify-content: center; gap: 22px;
-  padding: 12px 20px;
-  background: rgba(0, 0, 0, 0.92);
+  padding: 12px 20px; background: rgba(0, 0, 0, 0.92);
   border-top: 1px solid rgba(255, 255, 255, 0.08);
   font-family: var(--mono); font-size: 12px;
 }
 .jev-q { color: var(--dim); font-style: italic; }
-.jev-item {
-  color: var(--magenta); font-weight: 700; max-width: 220px;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
+.jev-item { color: var(--magenta); font-weight: 700; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .jev-count { color: var(--dim); letter-spacing: 0.08em; }
 .jev-count b { font-size: 15px; font-variant-numeric: tabular-nums; }
 #jevKept { color: var(--green); }
@@ -142,37 +98,29 @@ body { background: var(--bg); color: var(--ink); font-family: var(--sans); }
 
 /* ---------- Session panel ---------- */
 #sessionPanel {
-  position: fixed; z-index: 20;
-  top: 50%; left: 50%; transform: translate(-50%, -50%);
-  width: min(420px, 90vw);
-  background: #0a0d12;
-  border: 1px solid rgba(255, 79, 216, 0.4);
-  border-left: 3px solid var(--magenta);
-  border-radius: 10px; padding: 20px 22px;
-  font-family: var(--mono);
+  position: fixed; z-index: 20; top: 50%; left: 50%; transform: translate(-50%, -50%);
+  width: min(420px, 90vw); background: #0a0d12;
+  border: 1px solid rgba(255, 79, 216, 0.4); border-left: 3px solid var(--magenta);
+  border-radius: 10px; padding: 20px 22px; font-family: var(--mono);
 }
 #sessionPanel[hidden] { display: none; }
 #sessionHead { font-size: 11px; letter-spacing: 0.3em; color: var(--dim); margin-bottom: 10px; }
 #sessionStatus { font-size: 18px; font-weight: 800; color: #fff; margin-bottom: 12px; }
 #sessionStats { font-size: 12px; color: var(--dim); line-height: 1.9; }
 #sessionStats b { color: #fff; }
-#sessionClose {
-  position: absolute; top: 8px; right: 12px;
-  background: none; border: none; color: var(--faint);
-  font-size: 20px; cursor: pointer;
-}
+#sessionClose { position: absolute; top: 8px; right: 12px; background: none; border: none; color: var(--faint); font-size: 20px; cursor: pointer; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01s !important; }
 }
 @media (max-width: 900px) {
-  #cardGrid { grid-template-columns: repeat(2, 1fr); grid-template-rows: repeat(3, 1fr); }
   #statsbar { gap: 16px; }
   .stat .num { font-size: 18px; }
   #brandBy { display: none; }
+  #detailPanel { top: auto; bottom: 70px; right: 10px; left: 10px; width: auto; }
 }
 @media (max-width: 600px) {
-  #cardGrid { grid-template-columns: 1fr; padding: 70px 10px 60px; }
   .jev-q, .jev-item { display: none; }
   #topbar { padding: 8px 12px; }
+  .stat { min-width: 44px; }
 }
