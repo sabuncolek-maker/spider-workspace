@@ -114,12 +114,14 @@ body {
 }
 #connDot.on { background: var(--ok); box-shadow: 0 0 6px rgba(127, 174, 122, 0.55); }
 #connDot.mid { background: var(--accent); }
+#connDot.stale { background: #b0a060; } /* amber: connected but data old */
 #connText {
   font-family: var(--mono); font-size: 9px; letter-spacing: 0.16em;
   color: var(--faint); margin-left: -6px;
 }
 #connText.on { color: var(--ok); }
 #connText.mid { color: var(--accent); }
+#connText.stale { color: #b0a060; }
 #queuePill {
   font-family: var(--mono); font-size: 9px; letter-spacing: 0.16em;
   color: var(--accent); border: 1px solid var(--accent);

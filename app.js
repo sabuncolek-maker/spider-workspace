@@ -1170,6 +1170,8 @@
         key.indexOf("inspect") !== -1) return "ANALYZE";
     if (key.indexOf("result") !== -1 || key.indexOf("final") !== -1) return "RESULT";
     if (key.indexOf("search") !== -1) return "SEARCH";
+    // Consistent with Python bridge fallback: browser tools -> COLLECT
+    if (key.indexOf("browser") !== -1) return "COLLECT";
     return "UNKNOWN";
   }
 
@@ -1334,6 +1336,8 @@
   // Connection states: CONNECTING (initial) | LIVE (socket open) |
   // RECONNECTING (closed, retry scheduled) | FALLBACK (max retries, polling only)
   var wsStatus = "CONNECTING";
+  var lastEventTs = 0; // timestamp of last valid activity event (for freshness)
+  var FRESHNESS_MS = 60000; // data older than 60s -> STALE
   var wsRetryMs = 2000;
   var WS_RETRY_MAX = 60000;
   var WS_MAX_FAILS = 5; // after this many failed attempts -> FALLBACK
@@ -1347,17 +1351,29 @@
     var dot = document.getElementById("connDot");
     var txt = document.getElementById("connText");
     if (!dot || !txt) return;
-    var cls = status === "LIVE" ? "on" : (status === "CONNECTING" || status === "RECONNECTING") ? "mid" : "";
+    var cls = status === "LIVE" ? "on" : (status === "CONNECTING" || status === "RECONNECTING") ? "mid" : (status === "STALE" ? "stale" : "");
     dot.setAttribute("class", cls);
     txt.setAttribute("class", cls);
     txt.textContent = status;
     var titles = {
-      LIVE: "realtime via WebSocket — connected",
+      LIVE: "realtime via WebSocket — connected, data fresh",
+      STALE: "connected but data is stale (no recent activity)",
       CONNECTING: "connecting to realtime channel…",
       RECONNECTING: "connection lost — retrying…",
-      FALLBACK: "realtime unavailable — polling state.json"
+      FALLBACK: "realtime unavailable — polling state.json",
+      DISCONNECTED: "websocket disconnected"
     };
     txt.setAttribute("title", titles[status] || status);
+  }
+  function checkFreshness() {
+    // Called periodically: LIVE -> STALE if no recent event
+    if (wsStatus !== "LIVE" && wsStatus !== "STALE") return;
+    var age = Date.now() - lastEventTs;
+    if (lastEventTs > 0 && age > FRESHNESS_MS) {
+      if (wsStatus !== "STALE") setConn("STALE");
+    } else if (wsStatus === "STALE" && age <= FRESHNESS_MS) {
+      setConn("LIVE");
+    }
   }
 
   /* Validate + dedup a realtime envelope, then apply its state.
@@ -1556,6 +1572,7 @@
       if (isSystem) return true;
       // every valid TOOL_STARTED enters the visual FIFO; nothing is dropped
       // for arriving fast. History records it in real time.
+      lastEventTs = Date.now(); // freshness: valid activity received
       visualQueue.push({ node: node, tool: tool, event_id: msg.event_id,
                          ts: ts, status: "started" });
       addEventHistory(ts, node, tool, "STARTED");
@@ -1707,12 +1724,13 @@
       if (wsStatus === "LIVE") onWsDown();
       return;
     }
-    if (ws.readyState === 1 && wsStatus !== "LIVE") setConn("LIVE");
-    else if (ws.readyState === 0 && (wsStatus === "LIVE" || wsStatus === "FALLBACK")) {
+    if (ws.readyState === 1 && wsStatus !== "LIVE" && wsStatus !== "STALE") setConn("LIVE");
+    else if (ws.readyState === 0 && (wsStatus === "LIVE" || wsStatus === "STALE" || wsStatus === "FALLBACK")) {
       setConn(wsFails > 0 ? "RECONNECTING" : "CONNECTING");
-    } else if (ws.readyState >= 2 && wsStatus === "LIVE") {
+    } else if (ws.readyState >= 2 && (wsStatus === "LIVE" || wsStatus === "STALE")) {
       onWsDown();
     }
+    checkFreshness(); // update LIVE/STALE based on data age
   }, 5000);
 
   // expose for tests (node --check friendly, no-ops in browser)
