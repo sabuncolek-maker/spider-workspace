@@ -148,25 +148,8 @@ setInterval(function () {
 /* ---------- Energy beams: core fires at active node ---------- */
 var activeNode = null;
 function fireBeam(node) {
-  var p = POS[node];
-  if (!p) return;
-  // clear old beams
-  while (beamsG.firstChild) beamsG.removeChild(beamsG.firstChild);
-  // beam from core edge to node
-  var dx = p.x - CX, dy = p.y - CY;
-  var len = Math.sqrt(dx * dx + dy * dy);
-  var sx = CX + dx / len * 36, sy = CY + dy / len * 36;
-  var beam = el("line", {
-    "class": "energy-beam",
-    x1: sx.toFixed(1), y1: sy.toFixed(1),
-    x2: p.x.toFixed(1), y2: p.y.toFixed(1)
-  }, beamsG);
-  setTimeout(function () { if (beam.parentNode) beam.parentNode.removeChild(beam); }, 2300);
-  // node flare
+  // JELLYFISH era: creature swims to node; node flares. No SVG beams.
   setActiveNode(node);
-  // pulsar flare
-  pulsarEl.setAttribute("class", "firing");
-  setTimeout(function () { pulsarEl.setAttribute("class", ""); }, 950);
 }
 function setActiveNode(node) {
   if (activeNode && nodeEls[activeNode]) nodeEls[activeNode].setAttribute("class", "node");
@@ -340,120 +323,152 @@ setInterval(function () {
   }
 }, 5000);
 
-/* ---------- Canvas tendrils (adopted wobbly-line technique) ---------- */
-var tCanvas = document.getElementById("tendrilCanvas");
-var tCtx = tCanvas.getContext("2d");
-var tendrils = [];
-var TENDRIL_COUNT = 10;
+/* ---------- JELLYFISH: Muse as a cosmic creature ---------- */
+var jCanvas = document.getElementById("tendrilCanvas");
+var jCtx = jCanvas.getContext("2d");
 
-function sizeTendrilCanvas() {
+var jelly = {
+  x: 0, y: 0,           // screen coords
+  tx: 0, ty: 0,         // target
+  vx: 0, vy: 0,
+  bellPhase: 0,         // pulse cycle
+  pulseAmp: 1,          // stronger when moving
+  heading: 0,           // movement direction
+  tentacles: []
+};
+var J_TENTACLES = 12;
+
+function sizeJellyCanvas() {
   var dpr = window.devicePixelRatio || 1;
-  tCanvas.width = innerWidth * dpr;
-  tCanvas.height = innerHeight * dpr;
-  tCanvas.style.width = innerWidth + "px";
-  tCanvas.style.height = innerHeight + "px";
-  tCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  jCanvas.width = innerWidth * dpr;
+  jCanvas.height = innerHeight * dpr;
+  jCanvas.style.width = innerWidth + "px";
+  jCanvas.style.height = innerHeight + "px";
+  jCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
 }
-function svgToScreen(sx, sy) {
-  var scale = Math.min(innerWidth / 1200, innerHeight / 800);
-  var ox = (innerWidth - 1200 * scale) / 2;
-  var oy = (innerHeight - 800 * scale) / 2;
-  return { x: ox + sx * scale, y: oy + sy * scale };
-}
-function twobble(x, y, t) {
+function jwobble(x, y, t) {
   var a = Math.sin(0.3 * x + 1.4 * t + 2.0 + 2.5 * Math.sin(0.4 * y - 1.3 * t + 1.0));
   var b = Math.sin(0.2 * y + 1.5 * t + 2.8 + 2.3 * Math.sin(0.5 * x - 1.2 * t + 0.5));
   return a + b;
 }
-function initTendrils() {
-  tendrils = [];
-  for (var i = 0; i < TENDRIL_COUNT; i++) {
-    var base = (i / TENDRIL_COUNT) * Math.PI * 2;
-    tendrils.push({
-      baseAngle: base, angle: base,
-      targetAngle: base, length: 130, targetLength: 130,
-      phase: Math.random() * 10, width: 1.6 + Math.random() * 1.2
+function initJelly() {
+  var pc = svgToScreen(CX, CY);
+  jelly.x = pc.x; jelly.y = pc.y;
+  jelly.tx = pc.x; jelly.ty = pc.y;
+  jelly.tentacles = [];
+  for (var i = 0; i < J_TENTACLES; i++) {
+    jelly.tentacles.push({
+      spread: (i / J_TENTACLES - 0.5) * 1.6,  // fan below bell
+      len: 90 + Math.random() * 70,
+      phase: Math.random() * 10,
+      width: 1.2 + Math.random() * 1.4
     });
   }
 }
-function aimTendrils(node) {
+// creature swims toward active node
+function jellySwimTo(node) {
   var p = POS[node];
   if (!p) return;
-  var pc = svgToScreen(CX, CY);
   var pn = svgToScreen(p.x, p.y);
-  var targetAng = Math.atan2(pn.y - pc.y, pn.x - pc.x);
-  var dist = Math.hypot(pn.x - pc.x, pn.y - pc.y);
-  var scored = tendrils.map(function (t) {
-    var d = Math.abs(targetAng - t.angle) % (Math.PI * 2);
-    if (d > Math.PI) d = Math.PI * 2 - d;
-    return { t: t, d: d };
-  });
-  scored.sort(function (a, b) { return a.d - b.d; });
-  tendrils.forEach(function (t) { t.targetAngle = t.baseAngle; t.targetLength = 130; });
-  for (var i = 0; i < 4 && i < scored.length; i++) {
-    scored[i].t.targetAngle = targetAng + (i - 1.5) * 0.12;
-    scored[i].t.targetLength = dist * 0.92;
-  }
+  // stop short of node (hover near, not on top)
+  var pc = { x: jelly.x, y: jelly.y };
+  var dx = pn.x - pc.x, dy = pn.y - pc.y;
+  var d = Math.hypot(dx, dy) || 1;
+  var hover = 70;
+  jelly.tx = pn.x - dx / d * hover;
+  jelly.ty = pn.y - dy / d * hover;
+  jelly.pulseAmp = 1.8; // excited
+  setTimeout(function () { jelly.pulseAmp = 1; }, 2500);
 }
-function drawTendrils(time) {
-  var pc = svgToScreen(CX, CY);
-  tCtx.clearRect(0, 0, innerWidth, innerHeight);
-  for (var k = 0; k < tendrils.length; k++) {
-    var t = tendrils[k];
-    t.angle += (t.targetAngle - t.angle) * 0.06;
-    t.length += (t.targetLength - t.length) * 0.08;
-    var segs = 42;
-    tCtx.beginPath();
+function drawJelly(time) {
+  jCtx.clearRect(0, 0, innerWidth, innerHeight);
+  // --- movement: smooth swim ---
+  var dx = jelly.tx - jelly.x, dy = jelly.ty - jelly.y;
+  var dist = Math.hypot(dx, dy);
+  if (dist > 2) {
+    jelly.heading = Math.atan2(dy, dx);
+    var speed = Math.min(3.2, dist * 0.045) * jelly.pulseAmp;
+    jelly.x += Math.cos(jelly.heading) * speed;
+    jelly.y += Math.sin(jelly.heading) * speed;
+  } else {
+    // idle drift
+    jelly.x += Math.sin(time * 0.5) * 0.3;
+    jelly.y += Math.cos(time * 0.4) * 0.25;
+  }
+  // --- bell pulse ---
+  jelly.bellPhase += 0.06 * jelly.pulseAmp;
+  var pulse = Math.sin(jelly.bellPhase);
+  var bellR = 34 * (1 + pulse * 0.10);
+  var bellH = 30 * (1 - pulse * 0.14); // squashes when pulsing
+  // bell faces movement direction; tentacles trail behind
+  var faceAng = dist > 2 ? jelly.heading : -Math.PI / 2;
+  jCtx.save();
+  jCtx.translate(jelly.x, jelly.y);
+  jCtx.rotate(faceAng + Math.PI / 2);
+  // tentacles (trail behind = downward in local space)
+  for (var k = 0; k < jelly.tentacles.length; k++) {
+    var t = jelly.tentacles[k];
+    var segs = 36;
+    jCtx.beginPath();
     for (var i = 0; i <= segs; i++) {
       var f = i / segs;
-      var r = f * t.length;
-      var ang = t.angle + Math.sin(time * 1.1 + t.phase + f * 5) * 0.09 * f;
-      var x = pc.x + Math.cos(ang) * r;
-      var y = pc.y + Math.sin(ang) * r;
-      var wob = twobble(x * 0.02, y * 0.02, time * 0.6 + t.phase) * 7 * f;
-      x += -Math.sin(ang) * wob;
-      y += Math.cos(ang) * wob;
-      if (i === 0) tCtx.moveTo(x, y); else tCtx.lineTo(x, y);
+      var bx = Math.sin(t.spread) * 14; // base across bell rim
+      var r = f * t.len * (1 + pulse * 0.06);
+      var sway = jwobble(bx * 0.05, f * 8, time * 0.8 + t.phase) * 10 * f;
+      var x = bx + sway + Math.sin(t.spread) * f * 20;
+      var y = bellH * 0.5 + r;
+      if (i === 0) jCtx.moveTo(bx, bellH * 0.4);
+      else jCtx.lineTo(x, y);
     }
-    var ex = pc.x + Math.cos(t.angle) * t.length;
-    var ey = pc.y + Math.sin(t.angle) * t.length;
-    var grad = tCtx.createLinearGradient(pc.x, pc.y, ex, ey);
-    grad.addColorStop(0, "rgba(255,255,255,0.85)");
-    grad.addColorStop(0.25, "rgba(53,224,255,0.65)");
-    grad.addColorStop(0.7, "rgba(180,79,216,0.25)");
+    var grad = jCtx.createLinearGradient(0, 0, 0, t.len);
+    grad.addColorStop(0, "rgba(216,249,255,0.85)");
+    grad.addColorStop(0.4, "rgba(53,224,255,0.55)");
     grad.addColorStop(1, "rgba(180,79,216,0)");
-    tCtx.strokeStyle = grad;
-    tCtx.lineWidth = t.width;
-    tCtx.lineCap = "round";
-    tCtx.shadowColor = "rgba(53,224,255,0.7)";
-    tCtx.shadowBlur = 10;
-    tCtx.stroke();
-    tCtx.shadowBlur = 0;
-    tCtx.beginPath();
-    tCtx.arc(ex, ey, 2.2, 0, Math.PI * 2);
-    tCtx.fillStyle = "rgba(255,255,255,0.9)";
-    tCtx.shadowColor = "rgba(53,224,255,1)";
-    tCtx.shadowBlur = 12;
-    tCtx.fill();
-    tCtx.shadowBlur = 0;
+    jCtx.strokeStyle = grad;
+    jCtx.lineWidth = t.width;
+    jCtx.lineCap = "round";
+    jCtx.shadowColor = "rgba(53,224,255,0.7)";
+    jCtx.shadowBlur = 8;
+    jCtx.stroke();
+    jCtx.shadowBlur = 0;
   }
-  requestAnimationFrame(function (ts) { drawTendrils(ts / 1000); });
+  // bell dome
+  var bellGrad = jCtx.createRadialGradient(0, -8, 4, 0, 0, bellR * 1.4);
+  bellGrad.addColorStop(0, "rgba(255,255,255,0.95)");
+  bellGrad.addColorStop(0.35, "rgba(216,249,255,0.75)");
+  bellGrad.addColorStop(0.7, "rgba(53,224,255,0.35)");
+  bellGrad.addColorStop(1, "rgba(53,224,255,0)");
+  jCtx.beginPath();
+  jCtx.ellipse(0, 0, bellR, bellH, 0, Math.PI, 0); // top dome
+  jCtx.fillStyle = bellGrad;
+  jCtx.shadowColor = "rgba(53,224,255,0.9)";
+  jCtx.shadowBlur = 24;
+  jCtx.fill();
+  jCtx.shadowBlur = 0;
+  // inner glow core
+  jCtx.beginPath();
+  jCtx.arc(0, -4, 10 + pulse * 2, 0, Math.PI * 2);
+  jCtx.fillStyle = "rgba(255,255,255,0.9)";
+  jCtx.shadowColor = "rgba(255,255,255,1)";
+  jCtx.shadowBlur = 16;
+  jCtx.fill();
+  jCtx.shadowBlur = 0;
+  jCtx.restore();
+  requestAnimationFrame(function (ts) { drawJelly(ts / 1000); });
 }
-var _fireBeam = fireBeam;
+// hook: creature swims on activity
+var _fireBeam2 = fireBeam;
 fireBeam = function (node) {
-  aimTendrils(node);
-  _fireBeam(node);
-  setTimeout(function () {
-    tendrils.forEach(function (t) { t.targetAngle = t.baseAngle; t.targetLength = 130; });
-  }, 2400);
+  jellySwimTo(node);
+  _fireBeam2(node);
 };
 
 /* ---------- Boot ---------- */
 connect();
-sizeTendrilCanvas();
-initTendrils();
-drawTendrils(0);
-window.addEventListener("resize", function () { sizeTendrilCanvas(); });
+sizeJellyCanvas();
+initJelly();
+drawJelly(0);
+window.addEventListener("resize", function () { sizeJellyCanvas(); initJelly(); });
 setInterval(pollState, 7000);
 pollState();
 setRo("roAgent", "IDLE");
