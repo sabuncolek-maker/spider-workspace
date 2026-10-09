@@ -128,3 +128,18 @@ curl -s http://127.0.0.1:8077/state.json | python3 -m json.tool | head -20
 - PASS: CSS contains one filament base style, one junction base style and one breathing keyframe; reduced-motion/mobile rules retained.
 - PASS: cache-buster updated to `app.js?v=20261009-6`.
 - Runtime limitation: live browser rendering and Node execution were not available in this environment; visual validation still requires opening the deployed Pages URL on a browser/device.
+
+
+## TEST 11 — Spider-only web / gradient nodes (2026-10-09)
+**PASS — static integration audit.**
+- Removed the decorative W5 ambient web from the frontend; no ambient filaments, cluster breathing, or background spiral remain visible.
+- Removed visible hub spokes from the presentation layer; the hidden `#routes` geometry remains intact for deterministic locomotion and `getPointAtLength()`.
+- Node circles now use SVG radial gradients; active/done/failed states have dedicated gradients and stronger contrast.
+- Added `#spiderWeb`: persistent web filaments are created only from the spider's actual sampled movement coordinates.
+- Each deterministic route leg is keyed once, preventing duplicate stacked filaments on repeated traversal.
+- Trail geometry is updated from the same `pt` used by `spiderSetXY()`; it cannot invent an independent/random route.
+- Existing route graph, HUB routing, quintic path easing, camera, IK, gait, telemetry/WebSocket, queue and semantic node mapping are preserved.
+- No new `Math.random()` or continuous animation loop was introduced.
+- Asset cache-buster advanced to `app.js?v=20261009-7`.
+- Trail visibility was intentionally increased: brighter neutral filament, 1.35px stroke, 0.72 opacity, subtle glow; mobile/reduced-motion retain a visible trail.
+- Runtime limitation: live browser rendering and Node execution remain unavailable through the repository connector; deployed visual validation still requires opening the Pages URL on a browser/device.
