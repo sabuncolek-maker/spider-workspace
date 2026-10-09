@@ -122,4 +122,17 @@ Ini akan memberi dimensi temporal yang hilang dari tampilan kartu saja.
 
 ---
 
-*Belum commit/push/merge/deploy — menunggu otorisasi sesuai aturan.*
+## HASIL COMMIT, PUSH, MERGE, DEPLOY
+
+| Tahap | Hasil |
+|-------|-------|
+| Commit | `bb20002` — "feat: complete SPIDER workspace visual overhaul" (6 files, +1128/-161) |
+| Push | ✅ `origin/spider-overhaul` terverifikasi di remote |
+| PR | #25 — mergeable, tidak ada konflik, tidak ada CI wajib |
+| Merge | `401a94d` — Merge pull request #25 |
+| Branch | `spider-overhaul` dihapus setelah merge |
+| Deploy | ✅ GitHub Pages otomatis dari `main` |
+| Verifikasi deploy | `index.html` mengandung "SPIDER by Erlangga"; `app.js` mengandung `renderToolNetwork`, `tweenNumber`, `getSessionStatus` (13 match) |
+
+**Catatan repo:** Bekerja via branch `spider-overhaul` sesuai `AGENTS.md`
+(tidak langsung di `main`), lalu merge via PR.
