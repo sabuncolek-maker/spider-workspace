@@ -90,10 +90,13 @@ function frame(){t+=.016;updateCodeBlink();drawBackground();cameraX+=(spider.x-W
 function drawTrails(){for(let i=trails.length-1;i>=0;i--){const p=trails[i];p.life-=.012;if(p.life<=0){trails.splice(i,1);continue;}ctx.globalAlpha=Math.max(0,p.life)*.45;ctx.strokeStyle=p.color;ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(p.x,p.y);ctx.lineTo(p.x2,p.y2);ctx.stroke();}ctx.globalAlpha=1;}
 function wordPoint(s,j){const cols=W<700?2:Math.min(3,s.words.length),cellW=(s.rx*1.72)/cols,rows=Math.ceil(s.words.length/cols),rowH=Math.min(24,(s.ry*1.25)/Math.max(1,rows)),col=j%cols,row=Math.floor(j/cols);return{x:s.x+(col-(cols-1)/2)*cellW,y:s.y-s.ry*.15+row*rowH+8};}
 function targetWord(idx,wi){
-  // Body stays still (Indra spec): only legs get pulled, not body
-  // locomotionPending triggers leg activity, not body movement
-  locomotionPending=true;
-  setTimeout(()=>{locomotionPending=false;}, 3000);
+  // Body moves smoothly to section center (deliberate locomotion)
+  // NOT yanked to word positions — legs handle words via pull model
+  const s=sections[idx];
+  // Only move if actually changing sections (avoid jitter)
+  if(Math.hypot(spider.tx-s.x,spider.ty-s.y)>5){
+    spider.tx=s.x; spider.ty=s.y; locomotionPending=true;
+  }
 }
 function mapNode(node,tool,eventType){const x=String(node||"").toUpperCase(),k=String(tool||"").toLowerCase(),z=(k+" "+String(eventType||"")).toLowerCase();if(["TASK","SEARCH","COLLECT","ANALYZE","CONNECT","VERIFY","PROCESS","RESULT","COMPLETE","ERROR","UNKNOWN"].includes(x))return ({TASK:0,SEARCH:1,COLLECT:2,ANALYZE:3,CONNECT:4,VERIFY:5,PROCESS:6,RESULT:7,COMPLETE:7,ERROR:5,UNKNOWN:5})[x];const exact={search:1,"browser.search":1,browser_search:1,deep_research:1,open:2,"browser.open":2,find:2,read:2,memory_search:2,memory_get:2,exec:6,write:6,edit:6,"todo.write":3,"subagent.spawn":3,create_options:7,"browser.spawn_task":0,"browser.steer_task":0,"browser.peek_task":0,"browser.list_tasks":0,"task.spawn":0,"task.steer":0,"task.peek":0,"task.list":0,connect:4,"browser.connect":4,auth:4,"browser.auth":4,login:4,"browser.login":4,oauth:4,"browser.oauth":4,db:5,"muse.db":5};if(Object.prototype.hasOwnProperty.call(exact,k))return exact[k];if(k.includes("search"))return 1;if(k.startsWith("browser."))return 2;if(k==="exec"||k==="edit"||k==="write")return 6;if(String(eventType||"").includes("TASK_"))return 0;return 5;}
 function status(label,detail){const el=document.getElementById("agentStatus");el.textContent=label;el.style.color=label==="LIVE"?"#5ff0a4":label==="DISCONNECTED"?"#f87171":"#ffd166";document.getElementById("crawlLog").textContent=detail;}
