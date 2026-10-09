@@ -1013,7 +1013,7 @@
       var item = plan[legIdx];
       var t = Math.min(1, (now - legStart) / item.dur);
       if (legPath && legLen > 0) {
-        var e = easeInOutQuint(t);
+        var e = easeOutQuart(t); // NEBULA V4: pulled, not pushed
         var dist = legReverse ? legLen * (1 - e) : legLen * e;
         var pt = null;
         try { pt = legPath.getPointAtLength(dist); } catch (err) { /* hold */ }
@@ -1077,6 +1077,34 @@
   // Always cancels any in-flight journey first (explicit — even when the
   // target equals the last completed node, a stale in-flight journey must
   // not be allowed to settle), then travels the web paths to the new one.
+  /* NEBULA V4: tendrils reach toward target BEFORE body moves (pull, not push).
+   * Marks 3 nearest tendrils; they elongate + brighten during anticipation. */
+  var TENDRIL_ANGLES = [-35, -70, -110, -145, 35, 70, 110, 145];
+  function reachTendrils(tx, ty) {
+    var cur = spiderXY();
+    var ang = Math.atan2(tx - cur.x, -(ty - cur.y)) * 180 / Math.PI;
+    var groups = document.querySelectorAll("#tendrils > g.tseg1");
+    var scored = [];
+    for (var i = 0; i < groups.length && i < TENDRIL_ANGLES.length; i++) {
+      var d = Math.abs(ang - TENDRIL_ANGLES[i]) % 360;
+      if (d > 180) d = 360 - d;
+      scored.push({ g: groups[i], d: d });
+    }
+    scored.sort(function (a, b) { return a.d - b.d; });
+    groups.forEach(function (g) { g.classList.remove("reach"); });
+    for (var j = 0; j < 3 && j < scored.length; j++) {
+      scored[j].g.classList.add("reach");
+    }
+  }
+  function clearReach() {
+    document.querySelectorAll("#tendrils .reach").forEach(function (g) {
+      g.classList.remove("reach");
+    });
+  }
+
+  /* Yanked easing: fast pull start, smooth glide (like being dragged by tendrils). */
+  function easeOutQuart(t) { return 1 - Math.pow(1 - t, 4); }
+
   function travelToNode(node) {
     if (!POS[node]) node = "UNKNOWN";
     cancelJourney();
@@ -1086,18 +1114,22 @@
     spider.setAttribute("opacity", "1");
     if (from !== node) {
       ripple(p.x, p.y, node === "ERROR");
-      spider.setAttribute("class", "moving"); // beautify: glow while travelling
-      // Journey fits INSIDE the 1.2s queue slot with a 50ms safety margin
-      // (1150ms), so the queue's advance timer never cancels a journey just
-      // before completion. Single leg = 1150ms; via-hub = 550 + 100 + 500.
+      // NEBULA V4: anticipation — tendrils reach toward target first (250ms),
+      // then body is pulled along (900ms). Total still fits 1150ms slot.
+      reachTendrils(p.x, p.y);
+      spider.setAttribute("class", "reaching");
       w1c_setTarget(p.x, p.y, W1C_ZOOM); // W1-C: focus on destination
-      travelLegs(from, node, VISUAL_MIN_MS - 50, function (completed) {
-        w1c_returnHome(); // W1-C: ease back to normal framing
-        if (completed) spiderNode = node;
-        // beautify: arrived pulse, then clear
-        spider.setAttribute("class", "arrived");
-        setTimeout(function () { spider.setAttribute("class", ""); }, 1200);
-      });
+      setTimeout(function () {
+        spider.setAttribute("class", "moving"); // glow while travelling
+        travelLegs(from, node, VISUAL_MIN_MS - 300, function (completed) {
+          w1c_returnHome(); // W1-C: ease back to normal framing
+          if (completed) spiderNode = node;
+          clearReach();
+          // arrived pulse, then clear
+          spider.setAttribute("class", "arrived");
+          setTimeout(function () { spider.setAttribute("class", ""); }, 1200);
+        });
+      }, 250);
     }
   }
 
