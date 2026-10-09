@@ -60,24 +60,8 @@ body { background: var(--bg); color: var(--ink); font-family: var(--sans); }
 }
 @keyframes hintPulse { 50% { opacity: 0.4; } }
 
-/* Master Spider: the orchestrator, left side. Alive, not decorative. */
-#masterSpider {
-  position: absolute; z-index: 4;
-  left: 24px; top: 50%; transform: translateY(-50%);
-  text-align: center; pointer-events: none;
-  filter: drop-shadow(0 0 18px rgba(53, 224, 255, 0.25));
-}
-#masterSpider.working { filter: drop-shadow(0 0 28px rgba(53, 224, 255, 0.55)); }
-#masterSpider.working .ms-legs { animation: msLegs 0.8s ease-in-out infinite; }
-@keyframes msLegs { 50% { transform: translateY(2px); } }
-#masterSpider .ms-eye { animation: msBlink 4s infinite; }
-@keyframes msBlink { 0%, 92%, 100% { opacity: 1; } 95% { opacity: 0.2; } }
-#msCore { animation: msPulse 2s ease-in-out infinite; }
-@keyframes msPulse { 50% { opacity: 0.4; } }
-#msLabel {
-  font-family: var(--mono); font-size: 9px; letter-spacing: 0.3em;
-  color: var(--faint); margin-top: 4px;
-}
+/* Articulated spider is canvas-drawn (see SpiderLocomotion in app.js).
+   Small, not dominant. No DOM element needed. */
 
 /* Detail panel: slides in on node click, does NOT dominate */
 #detailPanel {
