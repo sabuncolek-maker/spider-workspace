@@ -12,7 +12,7 @@
 <header id="topbar">
   <div id="brand">
     <svg id="spiderMark" viewBox="0 0 48 48" width="30" height="30" aria-label="SPIDER status">
-      <g stroke="#35e0ff" stroke-width="2" fill="none" stroke-linecap="round">
+      <g class="spider-legs" stroke="#35e0ff" stroke-width="2" fill="none" stroke-linecap="round">
         <line x1="14" y1="16" x2="4" y2="10"/><line x1="14" y1="22" x2="3" y2="22"/>
         <line x1="14" y1="28" x2="4" y2="34"/><line x1="34" y1="16" x2="44" y2="10"/>
         <line x1="34" y1="22" x2="45" y2="22"/><line x1="34" y1="28" x2="44" y2="34"/>
@@ -36,8 +36,16 @@
   </div>
 </header>
 
-<main id="cardGrid"></main>
-<canvas id="linkOverlay"></canvas>
+<main id="workspace">
+  <canvas id="networkCanvas"></canvas>
+  <div id="detailPanel" hidden>
+    <button id="detailClose">×</button>
+    <div id="detailTool">—</div>
+    <div id="detailMeta">—</div>
+    <div id="detailStatus">—</div>
+  </div>
+  <div id="emptyHint">waiting for agent activity…</div>
+</main>
 
 <footer id="jevbar">
   <span class="jev-q">is this tool worth visualizing?</span>
