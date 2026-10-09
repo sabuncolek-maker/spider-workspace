@@ -120,10 +120,15 @@
       font-family: monospace;
       font-size: 10px;
       height: 90px;
-      overflow: hidden;
+      overflow-y: auto;
+      overflow-x: hidden;
       display: flex;
-      flex-direction: column-reverse;
+      flex-direction: column;
+      justify-content: flex-start;
       gap: 3px;
+    }
+    .log-stream .log-item:first-child {
+      order: -1;
     }
     .log-item {
       color: #8da4b8;
@@ -510,13 +515,21 @@
       document.getElementById('counter-words').innerText = wordsScanned + '/m';
       document.getElementById('counter-tokens').innerText = tokensIndexed.toLocaleString();
     }
+    let lastLogMsg = "", lastLogCount = 0;
     function addLog(msg, isHighlight = false) {
       const time = new Date().toISOString().substring(11, 19);
+      // Deduplicate: if same as last, increment counter instead of new row
+      if (msg === lastLogMsg && logStream.firstChild) {
+        lastLogCount++;
+        logStream.firstChild.innerHTML = `<span>${time}</span> ${isHighlight ? `<span class="highlight">${msg}</span>` : msg} <span style="color:#5d7e97">×${lastLogCount}</span>`;
+        return;
+      }
+      lastLogMsg = msg; lastLogCount = 1;
       const row = document.createElement('div');
       row.className = 'log-item';
       row.innerHTML = `<span>${time}</span> ${isHighlight ? `<span class="highlight">${msg}</span>` : msg}`;
       logStream.prepend(row);
-      if (logStream.children.length > 20) logStream.removeChild(logStream.lastChild);
+      while (logStream.children.length > 15) logStream.removeChild(logStream.lastChild);
     }
     function drawRadar() {
       const rc = document.getElementById('radar-canvas').getContext('2d');
@@ -562,6 +575,7 @@
       gc.stroke();
     }
     let pollSeconds = 7.0;
+    let wsFailCount = 0;
     function connectWS() {
       const qs = new URLSearchParams(location.search);
       const wsUrl = qs.get("ws") || "wss://spider-realtime-poc.sabuncolek1508.workers.dev/ws";
@@ -570,6 +584,7 @@
         ws.onopen = () => {
           document.getElementById('conn-status').textContent = '● WS SYNC';
           document.getElementById('conn-status').style.color = '#00ffd5';
+          wsFailCount = 0;
           addLog("WEBSOCKET CONNECTED", true);
           // Start latency ping loop
           setInterval(() => {
@@ -594,10 +609,18 @@
           document.getElementById('conn-status').textContent = '● WS ERROR';
           document.getElementById('conn-status').style.color = '#ff3377';
         };
-        ws.onclose = () => {
-          document.getElementById('conn-status').textContent = '● RECONNECTING';
-          document.getElementById('conn-status').style.color = '#ffaa00';
-          setTimeout(connectWS, 3000);
+        ws.onclose = (e) => {
+          wsFailCount++;
+          const statusEl = document.getElementById('conn-status');
+          if (wsFailCount >= 3) {
+            statusEl.textContent = '● POLL MODE';
+            statusEl.style.color = '#ffaa00';
+            addLog(`WS failed ${wsFailCount}x (code ${e.code}) — using poll fallback`, true);
+          } else {
+            statusEl.textContent = '● RECONNECTING';
+            statusEl.style.color = '#ffaa00';
+          }
+          setTimeout(connectWS, 5000);
         };
       } catch (_) { setTimeout(connectWS, 5000); }
     }
