@@ -326,6 +326,12 @@ setInterval(function () {
 /* ---------- JELLYFISH: Muse as a cosmic creature ---------- */
 var jCanvas = document.getElementById("tendrilCanvas");
 var jCtx = jCanvas.getContext("2d");
+function svgToScreen(sx, sy) {
+  var scale = Math.min(innerWidth / 1200, innerHeight / 800);
+  var ox = (innerWidth - 1200 * scale) / 2;
+  var oy = (innerHeight - 800 * scale) / 2;
+  return { x: ox + sx * scale, y: oy + sy * scale };
+}
 
 var jelly = {
   x: 0, y: 0,           // screen coords
