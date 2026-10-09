@@ -210,6 +210,8 @@ function brainJudge(tool) {
 /* ---------- Events ---------- */
 var seenEvents = {};
 var pendingCards = {}; // tool -> card (for DONE marking)
+var lastEventTs = 0;
+var STALE_MS = 60000;
 
 function handleMessage(msg) {
   if (!msg || typeof msg !== "object") return;
@@ -227,6 +229,7 @@ function handleMessage(msg) {
 
   if (et === "TOOL_STARTED") {
     if (!brainJudge(tool)) return; // SKIPPED
+    lastEventTs = Date.now();
     stats.tools++;
     stats.nodes[node] = 1;
     updateStats();
@@ -298,6 +301,17 @@ function pollState() {
       }
     }).catch(function () {});
 }
+
+/* ---------- Staleness: transport open != agent active ---------- */
+setInterval(function () {
+  if (!wsLive) return;
+  var idle = Date.now() - lastEventTs;
+  if (lastEventTs > 0 && idle > STALE_MS) {
+    setConn("", "STALE \u00b7 no activity " + Math.round(idle / 1000) + "s");
+  } else if (wsLive) {
+    setConn("live", "LIVE");
+  }
+}, 5000);
 
 /* ---------- Boot ---------- */
 connect();
