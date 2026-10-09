@@ -190,12 +190,16 @@ body {
 }
 
 /* ---------- svg nodes ---------- */
-.node-ring { fill: #101318; stroke: var(--faint); stroke-width: 1.2; }
+.node-ring {
+  fill: url(#nodeGradient);
+  stroke: rgba(168, 177, 190, 0.62);
+  stroke-width: 1.15;
+}
 .node-label {
   font-family: var(--mono);
   font-size: 13px;
   letter-spacing: 0.28em;
-  fill: #9aa1ad;
+  fill: #b4bcc8;
   text-anchor: middle;
   paint-order: stroke;
   stroke: #0b0d11;
@@ -209,9 +213,10 @@ body {
   text-anchor: middle;
 }
 g.node.active .node-ring {
+  fill: url(#nodeGradientActive);
   stroke: var(--accent);
-  stroke-width: 1.6;
-  filter: drop-shadow(0 0 6px rgba(217, 164, 65, 0.45));
+  stroke-width: 1.65;
+  filter: drop-shadow(0 0 7px rgba(217, 164, 65, 0.55));
   animation: breathe 3.2s ease-in-out infinite;
 }
 @keyframes breathe {
@@ -219,113 +224,49 @@ g.node.active .node-ring {
   50% { opacity: 0.72; }
 }
 g.node.active .node-label { fill: var(--accent); stroke: #0b0d11; }
-g.node.done .node-ring { stroke: var(--ok); opacity: 0.75; }
+g.node.done .node-ring { fill: url(#nodeGradientDone); stroke: var(--ok); opacity: 0.92; }
 g.node.done .node-label { fill: var(--ok); opacity: 0.8; }
 g.node.failed .node-ring {
+  fill: url(#nodeGradientFailed);
   stroke: var(--error);
-  stroke-width: 1.8;
-  filter: drop-shadow(0 0 8px rgba(217, 106, 90, 0.5));
+  stroke-width: 1.85;
+  filter: drop-shadow(0 0 8px rgba(217, 106, 90, 0.58));
 }
 g.node.failed .node-label { fill: var(--error); }
-g.node.dim { opacity: 0.45; }
+g.node.dim { opacity: 0.82; }
 g.node.dim.dashed .node-ring { stroke-dasharray: 4 5; }
 
-.thread { stroke: var(--line); stroke-width: 0.72; opacity: 0.38; }
-.thread.lit { stroke: rgba(217, 164, 65, 0.14); opacity: 0.72; }
+.thread { display: none; }
+#ambient { display: none; }
+.spiral { display: none; }
+#routes { visibility: hidden; pointer-events: none; }
 
-/* W5: Aduok-inspired web language.
- * Fine filament clouds + sparse junctions + negative space.
- * Kept intentionally dim so the semantic route/spider remains primary. */
-#ambient { pointer-events: none; }
-
-.amb-edge { stroke: #8a93a6; stroke-width: 0.55; fill: none; }
-.amb-node { fill: #8a93a6; }
-
-.amb-strand {
+#spiderWeb {
+  pointer-events: none;
+}
+.spider-web-trace {
   fill: none;
-  stroke: #9aa3b8;
-  stroke-width: 0.58;
+  stroke: #c3cbd7;
+  stroke-width: 1.35;
   stroke-linecap: round;
   stroke-linejoin: round;
   vector-effect: non-scaling-stroke;
-  opacity: 0.095;
+  opacity: 0.72;
+  filter: drop-shadow(0 0 2px rgba(195, 203, 215, 0.38));
 }
-.amb-strand.amb-near { opacity: 0.12; }
-.amb-strand.amb-mid { opacity: 0.085; }
-.amb-strand.amb-far { opacity: 0.055; }
-
-.amb-junction {
-  fill: #c8cfda;
-  opacity: 0.12;
-}
-.amb-junction.amb-near { opacity: 0.15; }
-.amb-junction.amb-mid { opacity: 0.10; }
-.amb-junction.amb-far { opacity: 0.065; }
-
-/* W2-D: activity decay — smooth 2s return to baseline. */
-#ambient [data-c] { transition: opacity 2s ease; }
-
-/* W2-A: very slow atmospheric breathing; compositor-driven. */
-@keyframes w2a-breathe {
-  0%, 100% { filter: brightness(1); }
-  50% { filter: brightness(1.10); }
-}
-#ambient [data-c="0"] { animation: w2a-breathe 9s ease-in-out infinite; }
-#ambient [data-c="1"] { animation: w2a-breathe 11s ease-in-out 2s infinite; }
-#ambient [data-c="2"] { animation: w2a-breathe 10s ease-in-out 4s infinite; }
-#ambient [data-c="3"] { animation: w2a-breathe 12s ease-in-out 1s infinite; }
-
-/* W1-B2/W2-B: local response, restrained for the denser filament field. */
-.amb-node.amb-active { opacity: 0.30; }
-.amb-edge.amb-active { opacity: 0.24; }
-.amb-node.amb-semi { opacity: 0.20; }
-.amb-edge.amb-semi { opacity: 0.15; }
-
-/* W1-B1/W2-C: active navigation energy follows the real route. */
-.w1b-active-path {
-  fill: none;
-  stroke: #d9a441;
-  stroke-width: 1.55;
-  opacity: 0.25;
-  pointer-events: none;
-  stroke-dasharray: 12 12;
-  animation: w2c-flow 1.2s linear infinite;
-}
-@keyframes w2c-flow {
-  to { stroke-dashoffset: -24; }
-}
-
-.w1b-trail {
-  fill: none;
-  stroke: #d9a441;
-  stroke-width: 1.25;
-  opacity: 0.18;
-  pointer-events: none;
-}
-
-/* Mobile: preserve negative space and reduce cloud density visually. */
 @media (max-width: 480px) {
-  .amb-strand.amb-near { opacity: 0.105; }
-  .amb-strand.amb-mid { opacity: 0.075; }
-  .amb-strand.amb-far { opacity: 0.05; }
-  .amb-junction.amb-near { opacity: 0.13; }
-  .amb-junction.amb-mid { opacity: 0.09; }
-  .amb-junction.amb-far { opacity: 0.055; }
-  .w1b-active-path { opacity: 0.26; }
-  .w1b-trail { opacity: 0.18; }
+  .spider-web-trace {
+    stroke-width: 1.25;
+    opacity: 0.70;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  #ambient { opacity: 1; }
-  #ambient [data-c] { animation: none; }
-  .w1b-active-path, .w1b-trail { display: none; }
-  .w1b-active-path { animation: none; }
-  .amb-node.amb-active, .amb-edge.amb-active { opacity: inherit; }
+  .spider-web-trace {
+    opacity: 0.66;
+    filter: none;
+  }
 }
-
-/* Design B Phase 1: capture spiral (very subtle) + invisible route paths */
-.spiral { fill: none; stroke: var(--line); stroke-width: 0.7; opacity: 0.16; }
-#routes { visibility: hidden; pointer-events: none; }
 
 #spider { transition: none; } /* Design B Phase 2: rAF drives transform; no CSS transition */
 #spiderBody { transition: opacity 0.6s ease; }

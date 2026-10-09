@@ -60,7 +60,6 @@
   if (window.addEventListener) window.addEventListener("resize", fitView);
 
   /* ---------- build web + nodes ---------- */
-  var threadsG = document.getElementById("threads");
   var nodesG = document.getElementById("nodes");
   var nodeEls = {};
 
@@ -73,11 +72,6 @@
   Object.keys(POS).forEach(function (name) {
     if (name === "IDLE") return;
     var p = POS[name];
-    el("line", {
-      x1: CX, y1: CY, x2: p.x, y2: p.y,
-      "class": "thread", "data-thread": name
-    }, threadsG);
-
     var g = el("g", { "class": "node dim", id: "node-" + name }, nodesG);
     if (name === "UNKNOWN") g.setAttribute("class", "node dim dashed");
     el("circle", { "class": "node-ring", cx: p.x, cy: p.y, r: name === "ERROR" || name === "UNKNOWN" ? 22 : 26 }, g);
@@ -86,249 +80,60 @@
     nodeEls[name] = g;
   });
 
-  /* ---------- W1-A: ambient static world ----------
-   * Presentation only. Deterministic hardcoded coordinates — no Math.random().
-   * 4 clusters, 90 secondary nodes, 129 ambient edges, 4 main visual paths.
-   * Rendered once at init into <g id="ambient"> (behind #threads).
-   * NEVER used by routePath(), gait, telemetry, or locomotion. */
-  /* W5: ADUOK-INSPIRED LIVING WEB.
-   * Source-derived visual language: dense filament clouds, soft junction
-   * points, central radial fan, sparse long connections and large negative
-   * space. This adapts the web language only; semantic routing and telemetry
-   * remain unchanged. Deterministic geometry; no random motion.
-   */ 
-  var AMBIENT_CLUSTER_CLS = ["amb-near", "amb-near", "amb-mid", "amb-far"];
+  /* ---------- SPIDER WEB: actual movement history ----------
+   * No decorative/background web. The only visible web is created by the
+   * spider's real path while it moves between state-driven nodes.
+   * Routing remains deterministic: routePath() is still the sole source of
+   * locomotion. Each unique traversed leg becomes a persistent filament.
+   */
+  var spiderWebG = document.getElementById("spiderWeb");
+  var spiderWebTraces = Object.create(null);
 
-  function ambientPath(d, cls, c) {
-    var g = document.getElementById("ambient");
-    if (!g) return;
-    el("path", { d:d, "class":cls || "amb-strand",
-      "data-c":c === undefined ? 0 : c }, g);
+  function spiderWebKey(leg) {
+    if (!leg) return null;
+    return String(leg.from) + "->" + String(leg.to) + "|" + String(leg.kind);
   }
 
-  function ambientDot(x, y, cls, c, r) {
-    var g = document.getElementById("ambient");
-    if (!g) return;
-    el("circle", { cx:x, cy:y, r:r || 1.4,
-      "class":cls || "amb-junction",
-      "data-c":c === undefined ? 0 : c }, g);
-  }
-
-  function webPoint(cluster, angle, scale) {
-    var a = angle * Math.PI / 180;
-    return {
-      x: cluster.cx + Math.cos(a) * cluster.rx * scale,
-      y: cluster.cy + Math.sin(a) * cluster.ry * scale
+  function spiderWebStart(leg, point) {
+    if (!spiderWebG || !leg || !point) return null;
+    var key = spiderWebKey(leg);
+    if (!key) return null;
+    /* A route already etched into the workspace remains; do not stack
+       duplicate filaments when the same deterministic leg is revisited. */
+    if (spiderWebTraces[key]) return null;
+    var p = { x: point.x, y: point.y };
+    var trace = {
+      key: key,
+      el: el("polyline", {
+        "class": "spider-web-trace",
+        points: p.x.toFixed(1) + "," + p.y.toFixed(1),
+        "data-web-route": key
+      }, spiderWebG),
+      pts: [p]
     };
+    spiderWebTraces[key] = trace;
+    return trace;
   }
 
-  function buildFilamentCloud(cluster) {
-    var phase = cluster.phase || 0;
-    /* Long, irregular filaments form a cloud rather than a closed mesh. */
-    for (var i = 0; i < 14; i++) {
-      var a1 = phase + i * 360 / 14;
-      var a2 = a1 + 38 + (i % 3) * 11;
-      var p1 = webPoint(cluster, a1, 0.94 - (i % 4) * 0.035);
-      var p2 = webPoint(cluster, a2, 0.38 + (i % 5) * 0.045);
-      var ca = a1 + 62 + (i % 2) * 18;
-      var cp = webPoint(cluster, ca, 0.48 + (i % 3) * 0.06);
-      ambientPath(
-        "M " + p1.x.toFixed(1) + " " + p1.y.toFixed(1) +
-        " Q " + cp.x.toFixed(1) + " " + cp.y.toFixed(1) +
-        " " + p2.x.toFixed(1) + " " + p2.y.toFixed(1),
-        "amb-strand " + cluster.cls, cluster.c
-      );
-    }
-
-    /* Shorter cross-filaments create the tangled/neural texture visible in
-       the reference without producing a rigid geometric lattice. */
-    for (var j = 0; j < 9; j++) {
-      var b1 = phase + 18 + j * 40;
-      var q1 = webPoint(cluster, b1, 0.64);
-      var q2 = webPoint(cluster, b1 + 76, 0.46);
-      var qc = webPoint(cluster, b1 + 38, 0.22 + (j % 3) * 0.06);
-      ambientPath(
-        "M " + q1.x.toFixed(1) + " " + q1.y.toFixed(1) +
-        " Q " + qc.x.toFixed(1) + " " + qc.y.toFixed(1) +
-        " " + q2.x.toFixed(1) + " " + q2.y.toFixed(1),
-        "amb-strand " + cluster.cls, cluster.c
-      );
-    }
-
-    /* Sparse bright junctions — enough to imply a live graph, not stars. */
-    for (var k = 0; k < 12; k++) {
-      var da = phase + k * 31;
-      var dp = webPoint(cluster, da, 0.34 + (k % 4) * 0.13);
-      ambientDot(dp.x, dp.y, "amb-junction " + cluster.cls, cluster.c,
-        k % 5 === 0 ? 1.8 : 1.15);
-    }
-  }
-
-  (function buildAmbient() {
-    var g = document.getElementById("ambient");
-    if (!g) return;
-
-    /* Four atmospheric filament clouds: intentionally separated by negative
-       space, with no enclosing rings and no mini-web borders. */
-    var clusters = [
-      { cx:205, cy:215, rx:175, ry:125, phase:8,   cls:"amb-near", c:0 },
-      { cx:995, cy:215, rx:175, ry:125, phase:31,  cls:"amb-near", c:1 },
-      { cx:1000, cy:585, rx:180, ry:118, phase:57,  cls:"amb-mid",  c:2 },
-      { cx:200, cy:590, rx:165, ry:112, phase:79,  cls:"amb-far",  c:3 }
-    ];
-    clusters.forEach(buildFilamentCloud);
-
-    /* Central radial fan: the visual language of the reference's crawler
-       hub. These are presentation-only filaments; actual route spokes stay
-       in #threads/#routes and continue to drive locomotion. */
-    for (var r = 0; r < 18; r++) {
-      var a = r * 20;
-      var p0 = webPoint({cx:CX,cy:CY,rx:1,ry:1}, a, 0);
-      var rr = 118 + (r % 5) * 15;
-      var rad = a * Math.PI / 180;
-      var ex = CX + Math.cos(rad) * rr;
-      var ey = CY + Math.sin(rad) * rr * 0.72;
-      var bend = (r % 2 === 0 ? 1 : -1) * (12 + (r % 4) * 4);
-      var mx = (CX + ex) / 2, my = (CY + ey) / 2;
-      var nx = -Math.sin(rad), ny = Math.cos(rad);
-      ambientPath(
-        "M " + (CX + Math.cos(rad) * 22).toFixed(1) + " " + (CY + Math.sin(rad) * 22).toFixed(1) +
-        " Q " + (mx + nx * bend).toFixed(1) + " " + (my + ny * bend).toFixed(1) +
-        " " + ex.toFixed(1) + " " + ey.toFixed(1),
-        "amb-strand amb-near", 0
-      );
-    }
-
-    /* A few long filaments connect the central territory to cloud edges.
-       They are sparse by design and remain visual-only. */
-    var links = [
-      "M 500 355 Q 395 280 330 265",
-      "M 700 345 Q 805 280 875 265",
-      "M 520 470 Q 405 520 330 540",
-      "M 680 470 Q 805 520 875 545",
-      "M 505 390 Q 420 355 355 340",
-      "M 695 410 Q 780 445 850 455"
-    ];
-    links.forEach(function(d, i) {
-      ambientPath(d, "amb-strand " + AMBIENT_CLUSTER_CLS[i % 4], i % 4);
-    });
-  })();
-
-
-
-  /* ---------- W1-B: Living Web Response ----------
-   * Presentation only. Three additive visual responses, zero locomotion change.
-   * W1-B1: active navigation path glow (clone of actual routePath leg).
-   * W1-B2: nearest ambient cluster brightens on node change.
-   * W1-B3: spider trail via MutationObserver (no rAF, no locomotion hook).
-   * All disabled under prefers-reduced-motion. No Math.random(). */
-  var W1B_NODE_CLUSTER = {
-    TASK: 2, SEARCH: 2, COLLECT: 1, ANALYZE: 1, CONNECT: 1,
-    VERIFY: 3, PROCESS: 3, RESULT: 0, COMPLETE: 0,
-    UNKNOWN: 0, ERROR: 2, IDLE: -1
-  };
-  var w1b_activeOverlays = [];
-  var w1b_activeCluster = -1;
-
-  function w1b_setActivePath(fromNode, toNode) {
-    w1b_clearActivePath();
-    if (prefersReducedMotion) return;
-    var legs = [];
-    try { legs = routePath(fromNode, toNode); } catch (e) { return; }
-    var threads = document.getElementById("threads");
-    if (!threads) return;
-    legs.forEach(function (leg) {
-      if (!leg.path) return;
-      var clone = leg.path.cloneNode(false);
-      clone.removeAttribute("id");
-      clone.setAttribute("class", "w1b-active-path");
-      clone.removeAttribute("data-route");
-      threads.parentNode.insertBefore(clone, threads);
-      w1b_activeOverlays.push(clone);
-    });
-  }
-  function w1b_clearActivePath() {
-    w1b_activeOverlays.forEach(function (n) {
-      if (n.parentNode) n.parentNode.removeChild(n);
-    });
-    w1b_activeOverlays = [];
-  }
-
-  // W2-B: cluster adjacency for local propagation (from inter-cluster edges)
-  var W2B_ADJACENT = { 0: [1, 3], 1: [0, 2], 2: [1, 3], 3: [0, 2] };
-  function w1b_clusterResponse(node) {
-    if (prefersReducedMotion) return;
-    var c = W1B_NODE_CLUSTER[node];
-    if (c === undefined) c = -1;
-    if (c === w1b_activeCluster) return;
-    var ambient = document.getElementById("ambient");
-    if (!ambient) return;
-    // Clear previous active + semi-active
-    if (w1b_activeCluster >= 0) {
-      var prev = ambient.querySelectorAll('[data-c="' + w1b_activeCluster + '"]');
-      for (var i = 0; i < prev.length; i++) prev[i].classList.remove("amb-active");
-      var prevN = W2B_ADJACENT[w1b_activeCluster] || [];
-      for (var n = 0; n < prevN.length; n++) {
-        var prevS = ambient.querySelectorAll('[data-c="' + prevN[n] + '"]');
-        for (var m = 0; m < prevS.length; m++) prevS[m].classList.remove("amb-semi");
-      }
-    }
-    w1b_activeCluster = c;
-    if (c >= 0) {
-      var cur = ambient.querySelectorAll('[data-c="' + c + '"]');
-      for (var j = 0; j < cur.length; j++) cur[j].classList.add("amb-active");
-      // W2-B: propagate weaker response to adjacent clusters
-      var adj = W2B_ADJACENT[c] || [];
-      for (var k = 0; k < adj.length; k++) {
-        var semi = ambient.querySelectorAll('[data-c="' + adj[k] + '"]');
-        for (var s = 0; s < semi.length; s++) semi[s].classList.add("amb-semi");
-      }
-    }
-  }
-
-  // W1-B3: trail — sample spider XY via MutationObserver, render fading polyline.
-  var w1b_trailPts = [];
-  var w1b_trailEl = null;
-  var w1b_trailFadeTimer = null;
-  var w1b_lastTrailSample = 0;
-  function w1b_renderTrail() {
-    if (w1b_trailEl && w1b_trailEl.parentNode) w1b_trailEl.parentNode.removeChild(w1b_trailEl);
-    w1b_trailEl = null;
-    if (w1b_trailPts.length < 2 || prefersReducedMotion) return;
-    var pts = w1b_trailPts.map(function (p) { return p.x.toFixed(1) + "," + p.y.toFixed(1); }).join(" ");
-    var threads = document.getElementById("threads");
-    if (!threads) return;
-    w1b_trailEl = el("polyline", { points: pts, "class": "w1b-trail" }, threads.parentNode);
-    threads.parentNode.insertBefore(w1b_trailEl, threads);
-  }
-  function w1b_initTrail() {
-    if (prefersReducedMotion) return;
-    var spiderEl = document.getElementById("spider");
-    if (!spiderEl || !window.MutationObserver) return;
-    var obs = new MutationObserver(function () {
-      var now = performance.now();
-      if (now - w1b_lastTrailSample < 120) return; // ~8Hz max
-      w1b_lastTrailSample = now;
-      var xy = spiderXY();
-      var last = w1b_trailPts[w1b_trailPts.length - 1];
-      if (last && Math.hypot(xy.x - last.x, xy.y - last.y) < 2) return; // no movement
-      w1b_trailPts.push({ x: xy.x, y: xy.y });
-      while (w1b_trailPts.length > 16) w1b_trailPts.shift(); // ~2s window
-      w1b_renderTrail();
-      if (w1b_trailFadeTimer) clearTimeout(w1b_trailFadeTimer);
-      w1b_trailFadeTimer = setTimeout(function () {
-        w1b_trailPts = [];
-        w1b_renderTrail();
-      }, 2500);
-    });
-    obs.observe(spiderEl, { attributes: true, attributeFilter: ["transform"] });
+  function spiderWebPush(trace, point) {
+    if (!trace || !trace.el || !point) return;
+    var pts = trace.pts;
+    var last = pts[pts.length - 1];
+    if (last && Math.hypot(point.x - last.x, point.y - last.y) < 3) return;
+    pts.push({ x: point.x, y: point.y });
+    /* Keep a route visually faithful without allowing an accidental long
+       session to grow an unbounded DOM attribute. */
+    if (pts.length > 260) pts.splice(0, pts.length - 260);
+    trace.el.setAttribute("points", pts.map(function (p) {
+      return p.x.toFixed(1) + "," + p.y.toFixed(1);
+    }).join(" "));
   }
 
   /* ---------- W1-C: Spatial Focus (camera) ----------
    * Visual only. Subtle pan + zoom following spider activity.
    * During journey: updated inside existing travelLegs frame() (no new rAF).
    * Idle return: bounded self-terminating rAF (stops when settled).
-   * No locomotion change. Respects prefers-reduced-motion. No Math.random(). */
+   * No locomotion change. Respects prefers-reduced-motion. */
   var w1c_returnRaf = 0;
   var w1c_lastT = 0;
   var W1C_PAN = 0.22; // quieter spatial pull; the world should move, not jump
@@ -398,8 +203,8 @@
 
   /* ---------- route graph (Design B, Phase 1) ----------
    * Pure, deterministic routing over the visible web. The spider's future
-   * travel paths: spokes (hub<->node, the lines already drawn) and spiral
-   * arcs (adjacent ring nodes, following the faint spiral circle).
+   * travel paths: hidden spokes (hub<->node) and hidden circular arcs
+   * (adjacent ring nodes). These geometries exist only for locomotion sampling.
    * Phase 1 is infrastructure only: routePath() is built and tested here,
    * and Phase 2 wires it to the rAF path-following driver below.
    * Nothing moves randomly; every leg lies on a visible web path. */
@@ -414,9 +219,6 @@
     var d = Math.abs(ia - ib);
     return d === 1 || d === RING_ORDER.length - 1;
   }
-
-  // visible spiral (very subtle): the web's capture spiral through the ring
-  el("circle", { cx: CX, cy: CY, r: R, "class": "spiral" }, threadsG);
 
   // invisible route paths (getPointAtLength-ready). visibility:hidden keeps
   // getPointAtLength working in all browsers (unlike display:none).
@@ -1124,7 +926,6 @@
       } catch (e) { /* harness without rAF */ }
       journeyState = null;
     }
-    w1b_clearActivePath(); // W1-B1: clear on cancel/retarget
     w1c_returnHome(); // W1-C: return to normal framing on cancel
     resetGait(); // L2: settle legs on cancel/retarget (no teleport)
   }
@@ -1182,6 +983,15 @@
       legPath = item.leg.path;
       legReverse = !!item.leg.reverse;
       try { legLen = legPath.getTotalLength(); } catch (e) { legLen = 0; }
+      /* Start a real trail only when this exact route leg has not already
+         been etched into the workspace. The trail is updated from the same
+         coordinates that drive the spider, so it can never invent a route. */
+      var initialPoint = null;
+      if (legPath && legLen > 0) {
+        try { initialPoint = legPath.getPointAtLength(legReverse ? legLen : 0); }
+        catch (e0) { initialPoint = null; }
+      }
+      state.activeTrace = spiderWebStart(item.leg, initialPoint);
       if (i === 0 && legPath && legLen > 0) {
         var p0 = null;
         try { p0 = legPath.getPointAtLength(legReverse ? legLen : 0); }
@@ -1232,6 +1042,7 @@
           }
           // L2/L3 gait: update from actual velocity + path tangent.
           updateGait(now, pt.x, pt.y, tangentDeg);
+          spiderWebPush(state.activeTrace, pt);
           w1c_updateCamera(now); // W1-C: frame-rate independent focus
         }
       } else {
@@ -1280,11 +1091,8 @@
       // Journey fits INSIDE the 1.2s queue slot with a 50ms safety margin
       // (1150ms), so the queue's advance timer never cancels a journey just
       // before completion. Single leg = 1150ms; via-hub = 550 + 100 + 500.
-      w1b_setActivePath(from, node); // W1-B1: highlight actual route
-      w1b_clusterResponse(node); // W1-B2: nearest ambient cluster reacts
       w1c_setTarget(p.x, p.y, W1C_ZOOM); // W1-C: focus on destination
       travelLegs(from, node, VISUAL_MIN_MS - 50, function (completed) {
-        w1b_clearActivePath(); // W1-B1: clear on arrival
         w1c_returnHome(); // W1-C: ease back to normal framing
         if (completed) spiderNode = node;
       });
@@ -1295,9 +1103,6 @@
     Object.keys(nodeEls).forEach(function (name) {
       var cls = "node dim" + (name === "UNKNOWN" ? " dashed" : "");
       nodeEls[name].setAttribute("class", cls);
-    });
-    document.querySelectorAll(".thread.lit").forEach(function (t) {
-      t.setAttribute("class", "thread");
     });
     if (!state || !state.workflow) return;
     var wf = state.workflow;
@@ -1312,8 +1117,6 @@
     if (hubRing) hubRing.setAttribute("class", spiderNode === "IDLE" ? "lit" : "");
     if (spiderNode && nodeEls[spiderNode] && spiderNode !== "IDLE") {
       nodeEls[spiderNode].setAttribute("class", "node active");
-      var th = document.querySelector('[data-thread="' + spiderNode + '"]');
-      if (th) th.setAttribute("class", "thread lit");
     }
     if ((wf.failed_nodes || []).length && nodeEls.ERROR) {
       nodeEls.ERROR.setAttribute("class", "node failed");
@@ -1955,5 +1758,4 @@
   setInterval(function () { if (lastState) renderAge(lastState); }, 1000);
   setConn("CONNECTING");
   connectWs();
-  w1b_initTrail(); // W1-B3: spider trail observer
 })();
