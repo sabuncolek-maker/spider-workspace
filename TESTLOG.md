@@ -116,3 +116,15 @@ curl -s http://127.0.0.1:8077/state.json | python3 -m json.tool | head -20
 **Source basis:** Aduok's 2026 spider implementation uses lazy target following, gradual anchor reach, and layered sine-noise legs; this adaptation uses the leg-wobble technique only, because SPIDER Workspace already has state-driven path locomotion and analytic IK. The source does not justify replacing the workspace's telemetry/routing architecture.
 
 **Runtime limitation:** this pass was audited statically through the repository connector. Live browser rendering and `node --check` were not available in this environment, so final visual validation remains required on the deployed page.
+
+
+## TEST 10 — Aduok-inspired web adaptation (W5)
+- PASS: replaced W4 territory geometry with deterministic filament-cloud web language.
+- PASS: 4 atmospheric clouds, central radial fan, sparse long filaments, negative-space separation.
+- PASS: no `Math.random()` introduced in the W5 block; geometry is deterministic.
+- PASS: ambient web remains visual-only; `routePath()`, locomotion, IK/gait, telemetry/WebSocket and semantic node mapping remain unchanged.
+- PASS: organic spider motion remains present; `spiderWobble()` and `updateOrganicLegVisual()` retained.
+- PASS: exactly 1 `buildAmbient()`, 1 `ambientPath()`, 1 `routePath()`, 1 `travelLegs()`.
+- PASS: CSS contains one filament base style, one junction base style and one breathing keyframe; reduced-motion/mobile rules retained.
+- PASS: cache-buster updated to `app.js?v=20261009-6`.
+- Runtime limitation: live browser rendering and Node execution were not available in this environment; visual validation still requires opening the deployed Pages URL on a browser/device.
