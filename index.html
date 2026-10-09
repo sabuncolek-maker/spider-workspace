@@ -275,6 +275,9 @@
     let wordsScanned = 0;
     let tokensIndexed = 0;
     let lastEventAt = 0;
+    const eventHistory = [];
+    let wsLatency = null;
+    let wsPingSent = 0;
     function seededRand(seed) {
       let s = seed;
       return () => { s = (s * 16807) % 2147483647; return (s - 1) / 2147483646; };
@@ -477,11 +480,31 @@
       updateMetrics();
     }
     function updateMetrics() {
-      const activity = Math.min(1, (Date.now() - lastEventAt) < 10000 ? 0.8 : 0.2);
-      document.getElementById('gauge-text').innerText = Math.floor(activity * 100) + '%';
-      document.getElementById('bar-density').style.width = Math.floor(40 + activity * 50) + '%';
-      document.getElementById('bar-entropy').style.width = Math.floor(20 + activity * 40) + '%';
-      document.getElementById('bar-cohesion').style.width = Math.floor(60 + activity * 30) + '%';
+      const now = Date.now();
+      const recent = eventHistory.filter(e => now - e.t < 60000);
+      // Density: events per minute (normalized to 0-100)
+      const density = Math.min(100, recent.length * 5);
+      // Entropy: variety of tool types (Shannon-like, normalized)
+      const toolCounts = {};
+      recent.forEach(e => { toolCounts[e.tool] = (toolCounts[e.tool] || 0) + 1; });
+      const numTypes = Object.keys(toolCounts).length;
+      const entropy = recent.length > 0 ? Math.min(100, (numTypes / Math.max(1, recent.length)) * 100 * 2) : 0;
+      // Cohesion: % of consecutive events in same cluster
+      let sameCluster = 0;
+      for (let i = 1; i < recent.length; i++) {
+        if (recent[i].cluster === recent[i-1].cluster) sameCluster++;
+      }
+      const cohesion = recent.length > 1 ? Math.floor((sameCluster / (recent.length - 1)) * 100) : 50;
+      // Gauge: overall activity score
+      const recency = (now - lastEventAt) < 10000 ? 1 : (now - lastEventAt) < 60000 ? 0.5 : 0.1;
+      const activityScore = Math.floor(Math.min(100, (recent.length * 8 + recency * 40)));
+      document.getElementById('gauge-text').innerText = activityScore + '%';
+      document.getElementById('bar-density').style.width = Math.floor(density) + '%';
+      document.getElementById('bar-entropy').style.width = Math.floor(entropy) + '%';
+      document.getElementById('bar-cohesion').style.width = cohesion + '%';
+      // Store for radar
+      window._metrics = { density, entropy, cohesion, activityScore,
+        toolTypes: numTypes, clusterSpread: new Set(recent.map(e => e.cluster)).size };
     }
     function updateCounters() {
       document.getElementById('counter-words').innerText = wordsScanned + '/m';
@@ -510,9 +533,13 @@
       rc.fillStyle = 'rgba(0, 255, 213, 0.25)';
       rc.strokeStyle = '#00ffd5';
       rc.beginPath();
+      // 6 axes = real metrics: density, entropy, cohesion, activity, tool variety, cluster spread
+      const m = window._metrics || { density: 20, entropy: 20, cohesion: 50, activityScore: 20, toolTypes: 1, clusterSpread: 1 };
+      const axes = [m.density, m.entropy, m.cohesion, m.activityScore,
+                    Math.min(100, m.toolTypes * 20), Math.min(100, m.clusterSpread * 25)];
       for (let i = 0; i < 6; i++) {
         const ang = (i / 6) * Math.PI * 2;
-        const curR = r * (0.4 + Math.sin(Date.now() * 0.003 + i) * 0.35);
+        const curR = r * (axes[i] / 100);
         if (i === 0) rc.moveTo(cx + Math.cos(ang) * curR, cy + Math.sin(ang) * curR);
         else rc.lineTo(cx + Math.cos(ang) * curR, cy + Math.sin(ang) * curR);
       }
@@ -544,9 +571,24 @@
           document.getElementById('conn-status').textContent = '● WS SYNC';
           document.getElementById('conn-status').style.color = '#00ffd5';
           addLog("WEBSOCKET CONNECTED", true);
+          // Start latency ping loop
+          setInterval(() => {
+            if (ws.readyState === 1) {
+              wsPingSent = Date.now();
+              ws.send(JSON.stringify({type: "ping"}));
+            }
+          }, 5000);
         };
         ws.onmessage = (e) => {
-          try { handleRealEvent(JSON.parse(e.data)); } catch (_) {}
+          try {
+            const data = JSON.parse(e.data);
+            if (data.type === "pong" && wsPingSent) {
+              wsLatency = Date.now() - wsPingSent;
+              document.getElementById('latency-val').textContent = wsLatency + 'ms';
+              return;
+            }
+            handleRealEvent(data);
+          } catch (_) {}
         };
         ws.onerror = () => {
           document.getElementById('conn-status').textContent = '● WS ERROR';
@@ -563,9 +605,38 @@
       lastEventAt = Date.now();
       const clusterIdx = mapEventToCluster(event);
       const toolName = event.tool || event.type || "unknown";
-      addLog(`EVENT [${toolName}] → ${CLUSTERS[clusterIdx].name}`);
+      // Record for real metrics
+      eventHistory.push({ t: Date.now(), tool: toolName, cluster: clusterIdx, type: event.type || "" });
+      if (eventHistory.length > 200) eventHistory.shift();
+      // Extract real keywords from event metadata
+      const keywords = extractKeywords(event);
+      if (keywords.length > 0) {
+        // Update a token's word with real keyword
+        const clusterTokens = tokens.filter(t => t.clusterIndex === clusterIdx);
+        if (clusterTokens.length > 0) {
+          const tk = clusterTokens[Math.floor((wordsScanned * 7) % clusterTokens.length)];
+          tk.word = keywords[0];
+          tk.locked = true;
+          setTimeout(() => { tk.locked = false; }, 8000);
+        }
+      }
+      addLog(`EVENT [${toolName}] → ${CLUSTERS[clusterIdx].name}${keywords.length ? ' :: ' + keywords.slice(0,3).join(',') : ''}`);
       if (clusterIdx !== activeClusterIndex) switchCluster(clusterIdx);
       updateMetrics();
+    }
+    function extractKeywords(event) {
+      const words = [];
+      const text = JSON.stringify(event).toLowerCase();
+      // Extract file names
+      const files = text.match(/[a-z0-9_-]+\.(js|html|css|py|json|md)/g) || [];
+      files.slice(0, 3).forEach(f => words.push(f.split('.')[0]));
+      // Extract tool action
+      const tool = (event.tool || "").toLowerCase();
+      if (tool) {
+        const parts = tool.split('.');
+        words.push(parts[parts.length - 1]);
+      }
+      return [...new Set(words)].slice(0, 4);
     }
     async function pollSnapshot() {
       try {
