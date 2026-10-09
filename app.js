@@ -91,77 +91,74 @@
    * 4 clusters, 90 secondary nodes, 129 ambient edges, 4 main visual paths.
    * Rendered once at init into <g id="ambient"> (behind #threads).
    * NEVER used by routePath(), gait, telemetry, or locomotion. */
-  /* W3-B: structured ambient web.
-   * The previous ambient graph used irregular cross-links that read as clutter.
-   * This version uses deterministic radial spokes + concentric curved bands
-   * in four quiet zones: fewer crossings, consistent spacing, more negative
-   * space. Presentation only; never used by routing or locomotion. */
-  var AMBIENT_WEB_ZONES = [
-    { cx: 185, cy: 250, rx: 150, ry: 105, a0: 18, a1: 162, c: 0 },
-    { cx: 1015, cy: 245, rx: 155, ry: 108, a0: 18, a1: 162, c: 1 },
-    { cx: 1015, cy: 610, rx: 155, ry: 105, a0: 198, a1: 342, c: 2 },
-    { cx: 185, cy: 610, rx: 145, ry: 100, a0: 198, a1: 342, c: 3 }
-  ];
+  /* W4: ONE LIVING WEB / SPIDER TERRITORY.
+   * One coherent organic web around the semantic workspace.
+   * Visual only: routing, telemetry and locomotion remain unchanged.
+   * Deterministic geometry; no random motion.
+   */
   var AMBIENT_CLUSTER_CLS = ["amb-near", "amb-near", "amb-mid", "amb-far"];
 
-  function ambientPoint(z, ring, t) {
-    var a = (z.a0 + (z.a1 - z.a0) * t) * Math.PI / 180;
-    var scale = ring / 3;
-    return [
-      z.cx + Math.cos(a) * z.rx * scale,
-      z.cy + Math.sin(a) * z.ry * scale
-    ];
+  function ambientPath(d, cls, c) {
+    var g = document.getElementById("ambient");
+    if (!g) return;
+    el("path", { d:d, "class":cls || "amb-strand", "data-c":c === undefined ? 0 : c }, g);
+  }
+
+  function ambientDot(x, y, cls, c, r) {
+    var g = document.getElementById("ambient");
+    if (!g) return;
+    el("circle", { cx:x, cy:y, r:r || 1.8,
+      "class":cls || "amb-junction", "data-c":c === undefined ? 0 : c }, g);
   }
 
   (function buildAmbient() {
     var g = document.getElementById("ambient");
     if (!g) return;
-    var zone, ring, i, t, p, q, d, cls;
 
-    for (var zi = 0; zi < AMBIENT_WEB_ZONES.length; zi++) {
-      zone = AMBIENT_WEB_ZONES[zi];
-      cls = AMBIENT_CLUSTER_CLS[zone.c];
+    /* One incomplete outer territory: the web frames the workspace instead
+       of becoming four decorative mini-webs. */
+    ambientPath("M 90 235 C 205 120 350 92 470 145 C 585 196 690 178 800 125 C 930 63 1070 105 1120 230","amb-strand amb-near",0);
+    ambientPath("M 62 360 C 155 285 245 255 350 275 C 470 298 520 345 600 352 C 705 362 780 302 895 275 C 1010 248 1090 285 1140 370","amb-strand amb-near",1);
+    ambientPath("M 95 565 C 190 475 300 458 395 500 C 500 548 548 620 645 625 C 760 632 820 535 930 495 C 1030 458 1100 505 1135 575","amb-strand amb-mid",2);
+    ambientPath("M 145 700 C 245 620 360 620 455 675 C 545 728 660 730 760 680 C 860 630 980 620 1060 700","amb-strand amb-far",3);
 
-      /* Three curved bands: clean concentric structure. */
-      for (ring = 1; ring <= 3; ring++) {
-        var rxs = zone.rx * ring / 3;
-        var rys = zone.ry * ring / 3;
-        var a0 = zone.a0 * Math.PI / 180;
-        var a1 = zone.a1 * Math.PI / 180;
-        var p0 = [zone.cx + Math.cos(a0) * rxs, zone.cy + Math.sin(a0) * rys];
-        var p1 = [zone.cx + Math.cos(a1) * rxs, zone.cy + Math.sin(a1) * rys];
-        d = "M " + p0[0].toFixed(1) + " " + p0[1].toFixed(1) +
-            " A " + rxs.toFixed(1) + " " + rys.toFixed(1) +
-            " 0 0 1 " + p1[0].toFixed(1) + " " + p1[1].toFixed(1);
-        el("path", { d:d, "class":"amb-edge " + cls, "data-c":zone.c }, g);
-      }
+    /* Curved semantic connections echo the actual route graph. */
+    var pairs = [
+      ["TASK","SEARCH","amb-near",0],["SEARCH","COLLECT","amb-near",1],
+      ["COLLECT","ANALYZE","amb-mid",1],["ANALYZE","CONNECT","amb-mid",2],
+      ["CONNECT","VERIFY","amb-far",3],["VERIFY","PROCESS","amb-near",2],
+      ["PROCESS","RESULT","amb-near",0],["RESULT","COMPLETE","amb-mid",1]
+    ];
+    pairs.forEach(function(p,i){
+      var a=POS[p[0]], b=POS[p[1]], mx=(a.x+b.x)/2, my=(a.y+b.y)/2;
+      var dx=b.x-a.x, dy=b.y-a.y, len=Math.hypot(dx,dy)||1;
+      var nx=-dy/len, ny=dx/len, bend=(i%2===0?1:-1)*(18+i*2);
+      ambientPath("M "+a.x+" "+a.y+" Q "+(mx+nx*bend)+" "+(my+ny*bend)+" "+b.x+" "+b.y,
+        "amb-strand "+p[2],p[3]);
+    });
 
-      /* Five evenly spaced radial strands. */
-      for (i = 0; i < 5; i++) {
-        t = i / 4;
-        p = ambientPoint(zone, 0.45, t);
-        q = ambientPoint(zone, 3, t);
-        d = "M " + p[0].toFixed(1) + " " + p[1].toFixed(1) +
-            " L " + q[0].toFixed(1) + " " + q[1].toFixed(1);
-        el("path", { d:d, "class":"amb-edge " + cls, "data-c":zone.c }, g);
-      }
+    /* Sparse secondary junctions, all belonging to the same territory. */
+    var pts=[
+      [118,205,0],[210,142,0],[322,116,0],[420,132,0],
+      [785,118,1],[890,105,1],[1005,138,1],[1090,205,1],
+      [78,445,2],[150,485,2],[275,520,2],[370,555,2],
+      [825,555,2],[930,505,2],[1040,485,2],[1120,430,2],
+      [175,660,3],[300,650,3],[900,655,3],[1035,665,3]
+    ];
+    pts.forEach(function(p){ ambientDot(p[0],p[1],"amb-junction",p[2],2); });
 
-      /* Nodes appear only at regular intersections. */
-      for (ring = 1; ring <= 3; ring++) {
-        for (i = 0; i < 5; i++) {
-          t = i / 4;
-          p = ambientPoint(zone, ring, t);
-          el("circle", {
-            cx:p[0].toFixed(1), cy:p[1].toFixed(1),
-            r:ring === 3 ? 2.2 : 1.8,
-            "class":"amb-node " + cls, "data-c":zone.c
-          }, g);
-        }
-      }
-    }
+    /* Feeder strands connect the territory to the semantic web. */
+    var feeders=[
+      "M 118 205 Q 190 220 245 230","M 322 116 Q 370 170 420 210",
+      "M 1005 138 Q 950 175 905 210","M 1090 205 Q 1020 220 960 235",
+      "M 78 445 Q 155 420 225 405","M 370 555 Q 430 500 470 470",
+      "M 825 555 Q 785 505 755 470","M 1120 430 Q 1040 405 975 390",
+      "M 300 650 Q 360 590 405 555","M 900 655 Q 850 595 815 555"
+    ];
+    feeders.forEach(function(d,i){ ambientPath(d,"amb-strand "+AMBIENT_CLUSTER_CLS[i%4],i%4); });
   })();
 
-  /* W3-B cleanup: duplicate legacy ambient renderer removed. */
+
 
   /* ---------- W1-B: Living Web Response ----------
    * Presentation only. Three additive visual responses, zero locomotion change.
