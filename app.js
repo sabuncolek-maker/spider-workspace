@@ -91,71 +91,127 @@
    * 4 clusters, 90 secondary nodes, 129 ambient edges, 4 main visual paths.
    * Rendered once at init into <g id="ambient"> (behind #threads).
    * NEVER used by routePath(), gait, telemetry, or locomotion. */
-  /* W4: ONE LIVING WEB / SPIDER TERRITORY.
-   * One coherent organic web around the semantic workspace.
-   * Visual only: routing, telemetry and locomotion remain unchanged.
-   * Deterministic geometry; no random motion.
-   */
+  /* W5: ADUOK-INSPIRED LIVING WEB.
+   * Source-derived visual language: dense filament clouds, soft junction
+   * points, central radial fan, sparse long connections and large negative
+   * space. This adapts the web language only; semantic routing and telemetry
+   * remain unchanged. Deterministic geometry; no random motion.
+   */ 
   var AMBIENT_CLUSTER_CLS = ["amb-near", "amb-near", "amb-mid", "amb-far"];
 
   function ambientPath(d, cls, c) {
     var g = document.getElementById("ambient");
     if (!g) return;
-    el("path", { d:d, "class":cls || "amb-strand", "data-c":c === undefined ? 0 : c }, g);
+    el("path", { d:d, "class":cls || "amb-strand",
+      "data-c":c === undefined ? 0 : c }, g);
   }
 
   function ambientDot(x, y, cls, c, r) {
     var g = document.getElementById("ambient");
     if (!g) return;
-    el("circle", { cx:x, cy:y, r:r || 1.8,
-      "class":cls || "amb-junction", "data-c":c === undefined ? 0 : c }, g);
+    el("circle", { cx:x, cy:y, r:r || 1.4,
+      "class":cls || "amb-junction",
+      "data-c":c === undefined ? 0 : c }, g);
+  }
+
+  function webPoint(cluster, angle, scale) {
+    var a = angle * Math.PI / 180;
+    return {
+      x: cluster.cx + Math.cos(a) * cluster.rx * scale,
+      y: cluster.cy + Math.sin(a) * cluster.ry * scale
+    };
+  }
+
+  function buildFilamentCloud(cluster) {
+    var phase = cluster.phase || 0;
+    /* Long, irregular filaments form a cloud rather than a closed mesh. */
+    for (var i = 0; i < 14; i++) {
+      var a1 = phase + i * 360 / 14;
+      var a2 = a1 + 38 + (i % 3) * 11;
+      var p1 = webPoint(cluster, a1, 0.94 - (i % 4) * 0.035);
+      var p2 = webPoint(cluster, a2, 0.38 + (i % 5) * 0.045);
+      var ca = a1 + 62 + (i % 2) * 18;
+      var cp = webPoint(cluster, ca, 0.48 + (i % 3) * 0.06);
+      ambientPath(
+        "M " + p1.x.toFixed(1) + " " + p1.y.toFixed(1) +
+        " Q " + cp.x.toFixed(1) + " " + cp.y.toFixed(1) +
+        " " + p2.x.toFixed(1) + " " + p2.y.toFixed(1),
+        "amb-strand " + cluster.cls, cluster.c
+      );
+    }
+
+    /* Shorter cross-filaments create the tangled/neural texture visible in
+       the reference without producing a rigid geometric lattice. */
+    for (var j = 0; j < 9; j++) {
+      var b1 = phase + 18 + j * 40;
+      var q1 = webPoint(cluster, b1, 0.64);
+      var q2 = webPoint(cluster, b1 + 76, 0.46);
+      var qc = webPoint(cluster, b1 + 38, 0.22 + (j % 3) * 0.06);
+      ambientPath(
+        "M " + q1.x.toFixed(1) + " " + q1.y.toFixed(1) +
+        " Q " + qc.x.toFixed(1) + " " + qc.y.toFixed(1) +
+        " " + q2.x.toFixed(1) + " " + q2.y.toFixed(1),
+        "amb-strand " + cluster.cls, cluster.c
+      );
+    }
+
+    /* Sparse bright junctions — enough to imply a live graph, not stars. */
+    for (var k = 0; k < 12; k++) {
+      var da = phase + k * 31;
+      var dp = webPoint(cluster, da, 0.34 + (k % 4) * 0.13);
+      ambientDot(dp.x, dp.y, "amb-junction " + cluster.cls, cluster.c,
+        k % 5 === 0 ? 1.8 : 1.15);
+    }
   }
 
   (function buildAmbient() {
     var g = document.getElementById("ambient");
     if (!g) return;
 
-    /* One incomplete outer territory: the web frames the workspace instead
-       of becoming four decorative mini-webs. */
-    ambientPath("M 90 235 C 205 120 350 92 470 145 C 585 196 690 178 800 125 C 930 63 1070 105 1120 230","amb-strand amb-near",0);
-    ambientPath("M 62 360 C 155 285 245 255 350 275 C 470 298 520 345 600 352 C 705 362 780 302 895 275 C 1010 248 1090 285 1140 370","amb-strand amb-near",1);
-    ambientPath("M 95 565 C 190 475 300 458 395 500 C 500 548 548 620 645 625 C 760 632 820 535 930 495 C 1030 458 1100 505 1135 575","amb-strand amb-mid",2);
-    ambientPath("M 145 700 C 245 620 360 620 455 675 C 545 728 660 730 760 680 C 860 630 980 620 1060 700","amb-strand amb-far",3);
-
-    /* Curved semantic connections echo the actual route graph. */
-    var pairs = [
-      ["TASK","SEARCH","amb-near",0],["SEARCH","COLLECT","amb-near",1],
-      ["COLLECT","ANALYZE","amb-mid",1],["ANALYZE","CONNECT","amb-mid",2],
-      ["CONNECT","VERIFY","amb-far",3],["VERIFY","PROCESS","amb-near",2],
-      ["PROCESS","RESULT","amb-near",0],["RESULT","COMPLETE","amb-mid",1]
+    /* Four atmospheric filament clouds: intentionally separated by negative
+       space, with no enclosing rings and no mini-web borders. */
+    var clusters = [
+      { cx:205, cy:215, rx:175, ry:125, phase:8,   cls:"amb-near", c:0 },
+      { cx:995, cy:215, rx:175, ry:125, phase:31,  cls:"amb-near", c:1 },
+      { cx:1000, cy:585, rx:180, ry:118, phase:57,  cls:"amb-mid",  c:2 },
+      { cx:200, cy:590, rx:165, ry:112, phase:79,  cls:"amb-far",  c:3 }
     ];
-    pairs.forEach(function(p,i){
-      var a=POS[p[0]], b=POS[p[1]], mx=(a.x+b.x)/2, my=(a.y+b.y)/2;
-      var dx=b.x-a.x, dy=b.y-a.y, len=Math.hypot(dx,dy)||1;
-      var nx=-dy/len, ny=dx/len, bend=(i%2===0?1:-1)*(18+i*2);
-      ambientPath("M "+a.x+" "+a.y+" Q "+(mx+nx*bend)+" "+(my+ny*bend)+" "+b.x+" "+b.y,
-        "amb-strand "+p[2],p[3]);
+    clusters.forEach(buildFilamentCloud);
+
+    /* Central radial fan: the visual language of the reference's crawler
+       hub. These are presentation-only filaments; actual route spokes stay
+       in #threads/#routes and continue to drive locomotion. */
+    for (var r = 0; r < 18; r++) {
+      var a = r * 20;
+      var p0 = webPoint({cx:CX,cy:CY,rx:1,ry:1}, a, 0);
+      var rr = 118 + (r % 5) * 15;
+      var rad = a * Math.PI / 180;
+      var ex = CX + Math.cos(rad) * rr;
+      var ey = CY + Math.sin(rad) * rr * 0.72;
+      var bend = (r % 2 === 0 ? 1 : -1) * (12 + (r % 4) * 4);
+      var mx = (CX + ex) / 2, my = (CY + ey) / 2;
+      var nx = -Math.sin(rad), ny = Math.cos(rad);
+      ambientPath(
+        "M " + (CX + Math.cos(rad) * 22).toFixed(1) + " " + (CY + Math.sin(rad) * 22).toFixed(1) +
+        " Q " + (mx + nx * bend).toFixed(1) + " " + (my + ny * bend).toFixed(1) +
+        " " + ex.toFixed(1) + " " + ey.toFixed(1),
+        "amb-strand amb-near", 0
+      );
+    }
+
+    /* A few long filaments connect the central territory to cloud edges.
+       They are sparse by design and remain visual-only. */
+    var links = [
+      "M 500 355 Q 395 280 330 265",
+      "M 700 345 Q 805 280 875 265",
+      "M 520 470 Q 405 520 330 540",
+      "M 680 470 Q 805 520 875 545",
+      "M 505 390 Q 420 355 355 340",
+      "M 695 410 Q 780 445 850 455"
+    ];
+    links.forEach(function(d, i) {
+      ambientPath(d, "amb-strand " + AMBIENT_CLUSTER_CLS[i % 4], i % 4);
     });
-
-    /* Sparse secondary junctions, all belonging to the same territory. */
-    var pts=[
-      [118,205,0],[210,142,0],[322,116,0],[420,132,0],
-      [785,118,1],[890,105,1],[1005,138,1],[1090,205,1],
-      [78,445,2],[150,485,2],[275,520,2],[370,555,2],
-      [825,555,2],[930,505,2],[1040,485,2],[1120,430,2],
-      [175,660,3],[300,650,3],[900,655,3],[1035,665,3]
-    ];
-    pts.forEach(function(p){ ambientDot(p[0],p[1],"amb-junction",p[2],2); });
-
-    /* Feeder strands connect the territory to the semantic web. */
-    var feeders=[
-      "M 118 205 Q 190 220 245 230","M 322 116 Q 370 170 420 210",
-      "M 1005 138 Q 950 175 905 210","M 1090 205 Q 1020 220 960 235",
-      "M 78 445 Q 155 420 225 405","M 370 555 Q 430 500 470 470",
-      "M 825 555 Q 785 505 755 470","M 1120 430 Q 1040 405 975 390",
-      "M 300 650 Q 360 590 405 555","M 900 655 Q 850 595 815 555"
-    ];
-    feeders.forEach(function(d,i){ ambientPath(d,"amb-strand "+AMBIENT_CLUSTER_CLS[i%4],i%4); });
   })();
 
 
