@@ -686,3 +686,26 @@ g.node.dim.dashed .node-ring { stroke-dasharray: 4 5; }
 #tendrils .tendril-outer, #tendrils .tendril-inner { display: none; }
 
 } /* end NEBULA V3 */
+
+/* ================= NEBULA V4: tendrils pull the body ================= */
+@media (prefers-reduced-motion: no-preference) {
+
+/* Reaching tendrils: elongate + brighten toward target */
+#tendrils .tseg1.reach { animation: reachWave 0.7s ease-in-out infinite; }
+@keyframes reachWave {
+  0%, 100% { transform: rotate(-11deg) scale(1.35); }
+  50% { transform: rotate(11deg) scale(1.55); }
+}
+#tendrils .tseg1.reach .tendril-seg {
+  stroke: #d8f9ff; opacity: 0.95;
+  filter: drop-shadow(0 0 14px rgba(53,224,255,1));
+}
+
+/* Anticipation: core compresses slightly before being yanked */
+#spider.reaching .core-pulse { animation: anticipate 0.25s ease-in; }
+@keyframes anticipate {
+  0% { transform: scale(1); }
+  100% { transform: scale(0.88); }
+}
+
+} /* end NEBULA V4 */
