@@ -1,5 +1,5 @@
 :root {
-  --bg: #12161c;
+  --bg: #04060e; /* deep space */
   --ink: #c9ced6;
   --dim: #6f7683;
   --faint: #3a404b;
@@ -17,12 +17,20 @@
 html, body { height: 100%; }
 
 body {
-  background: var(--bg);
+  background:
+    url("assets/space-bg.jpg") center / cover no-repeat,
+    radial-gradient(ellipse 55% 40% at 18% 12%, rgba(96, 64, 190, 0.20), transparent 70%),
+    radial-gradient(ellipse 50% 38% at 82% 72%, rgba(28, 92, 168, 0.16), transparent 70%),
+    radial-gradient(ellipse 38% 32% at 68% 22%, rgba(168, 64, 148, 0.10), transparent 70%),
+    radial-gradient(ellipse 45% 35% at 30% 85%, rgba(24, 120, 140, 0.10), transparent 70%),
+    var(--bg);
   color: var(--ink);
   font-family: var(--sans);
   overflow: hidden;
   -webkit-text-size-adjust: 100%;
 }
+
+
 
 #stage { position: fixed; inset: 0; }
 
