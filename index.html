@@ -38,23 +38,7 @@
 
 <main id="workspace">
   <canvas id="networkCanvas"></canvas>
-  <!-- Master Spider: the orchestrator (Muse agent). Not decorative. -->
-  <div id="masterSpider" title="Muse — agent orchestrator">
-    <svg viewBox="0 0 120 120" width="110" height="110">
-      <g class="ms-legs" stroke="#35e0ff" stroke-width="2.5" fill="none" stroke-linecap="round" opacity="0.85">
-        <line x1="42" y1="38" x2="14" y2="22"/><line x1="40" y1="52" x2="8" y2="52"/>
-        <line x1="42" y1="66" x2="14" y2="86"/><line x1="50" y1="78" x2="34" y2="104"/>
-        <line x1="78" y1="38" x2="106" y2="22"/><line x1="80" y1="52" x2="112" y2="52"/>
-        <line x1="78" y1="66" x2="106" y2="86"/><line x1="70" y1="78" x2="86" y2="104"/>
-      </g>
-      <ellipse cx="60" cy="46" rx="16" ry="18" fill="#081018" stroke="#35e0ff" stroke-width="2.5"/>
-      <ellipse cx="60" cy="78" rx="12" ry="16" fill="#081018" stroke="#35e0ff" stroke-width="2.5"/>
-      <circle cx="54" cy="42" r="3.5" fill="#ff4fd8" class="ms-eye"/>
-      <circle cx="66" cy="42" r="3.5" fill="#ff4fd8" class="ms-eye"/>
-      <circle id="msCore" cx="60" cy="60" r="5" fill="#35e0ff" opacity="0.9"/>
-    </svg>
-    <div id="msLabel">ORCHESTRATOR</div>
-  </div>
+  <!-- Articulated spider is drawn on canvas by SpiderLocomotion (small, not dominant) -->
   <div id="detailPanel" hidden>
     <button id="detailClose">×</button>
     <div id="detailTool">—</div>

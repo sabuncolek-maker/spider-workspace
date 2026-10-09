@@ -380,157 +380,363 @@ function netDraw(now) {
   });
 
   // physics: run until settled, then stop (honest stillness)
-  // BUT keep running while crawlers are active (they are real activity)
-  updateCrawlers(now);
-  drawCrawlers();
+  // Spider locomotion runs continuously (it's the living element)
+  updateSpider(now, 16);
   if (!reduced) {
     var energy = netPhysics();
-    if (energy > 0.5 || crawlers.length > 0) {
+    if (energy > 0.5 || spider.state === "moving" || tentacles.some(function(t){return t.state!=="IDLE";})) {
       requestAnimationFrame(netDraw);
     } else {
       netRunning = false;
     }
   } else {
-    if (crawlers.length > 0) requestAnimationFrame(netDraw);
-    else netRunning = false;
+    netRunning = false;
   }
 }
 
-/* ================= CRAWLER ARMY =================
- * Crawlers = visual representation of tool executions.
- * - Spawn from Master Spider on TOOL_STARTED (real event only)
- * - browser.* tools: exploration behavior (spread outward, web activity)
- * - other tools: move directly to their network node
- * - Return to spider on COMPLETE/FAILED, then fade
- * HONEST: crawlers represent tool executions, NOT specific URLs.
- * We do not have URL data and do not fabricate it.
+/* ================= SPIDER LOCOMOTION =================
+ * Articulated digital spider: 16 legs + 22 tentacles.
+ * Core principle: TENTACLES REACH FIRST, BODY FOLLOWS.
+ *
+ * - Tentacles have independent state machines:
+ *   IDLE -> REACHING -> EXTENDING -> ANCHORING -> SUPPORTING -> RELEASING -> RETRACTING
+ * - Body moves only after tentacles anchor (never teleports)
+ * - Legs do a walk cycle during body movement
+ * - Targets are REAL tool nodes from the session network
+ * - No target = spider idles honestly (no fake activity)
+ *
+ * Design decision (documented, not silent):
+ * Reference specifies 16 legs + 22 tentacles. Implemented as specified.
+ * Legs: short, around body, walk cycle. Tentacles: long, flexible,
+ * bezier curves, do the reaching. All 38 are thin neon lines.
  */
-var crawlers = []; // {x,y,tx,ty,state,nodeId,isWeb,born,alpha}
-var masterSpiderEl = document.getElementById("masterSpider");
+var spider = {
+  x: 0, y: 0,           // body center (canvas coords)
+  angle: 0,             // body orientation (radians)
+  tx: 0, ty: 0,         // movement target
+  state: "idle",        // idle | moving
+  moveT0: 0, moveDur: 0,
+  sx: 0, sy: 0,         // movement start pos
+  targetNodeId: null,
+  initialized: false
+};
 
-function spiderPos() {
-  if (!masterSpiderEl) return { x: 80, y: window.innerHeight / 2 };
-  var r = masterSpiderEl.getBoundingClientRect();
-  return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
-}
+// 22 tentacles: {baseAngle, tipX, tipY, anchorX, anchorY, state, progress, t0, dur, ctrlX, ctrlY}
+var TENTACLE_COUNT = 22;
+var tentacles = [];
+// 16 legs: {baseAngle, phase}
+var LEG_COUNT = 16;
+var legs = [];
 
-function isWebTool(tool) {
-  var t = String(tool).toLowerCase();
-  return t.indexOf("browser") !== -1 || t === "search" || t === "deep_research" || t === "open";
-}
-
-function spawnCrawlers(tool, node) {
-  if (!netCtx) return;
-  var sp = spiderPos();
-  var web = isWebTool(tool);
-  var count = web ? 3 : 1;
-  // deterministic spread: fan out by index (no randomness)
-  for (var i = 0; i < count; i++) {
-    var angle = web ? (-0.5 + i * 0.5) : 0; // web: fan; else: straight
-    crawlers.push({
-      x: sp.x, y: sp.y,
-      tx: sp.x, ty: sp.y,
-      angle: angle, isWeb: web,
-      nodeId: node ? node.id : null,
-      state: "deploying", // deploying -> exploring/working -> returning -> gone
-      born: performance.now(), alpha: 0
-    });
-  }
-  if (masterSpiderEl) masterSpiderEl.classList.add("working");
-  netKick();
-}
-
-function crawlerTarget(c) {
+function initSpider() {
+  if (spider.initialized || !netCanvas) return;
   var dpr = window.devicePixelRatio || 1;
   var W = netCanvas.width / dpr, H = netCanvas.height / dpr;
-  if (c.state === "returning") {
-    var sp = spiderPos();
-    return { x: sp.x, y: sp.y };
+  spider.x = W * 0.3; spider.y = H * 0.5;
+  spider.tx = spider.x; spider.ty = spider.y;
+  spider.initialized = true;
+  // Tentacles: distributed around body
+  for (var i = 0; i < TENTACLE_COUNT; i++) {
+    var ba = (i / TENTACLE_COUNT) * Math.PI * 2;
+    tentacles.push({
+      id: i, baseAngle: ba,
+      tipX: spider.x + Math.cos(ba) * 20,
+      tipY: spider.y + Math.sin(ba) * 20,
+      anchorX: 0, anchorY: 0,
+      state: "IDLE", progress: 0, t0: 0, dur: 600,
+      ctrlX: 0, ctrlY: 0,  // bezier control point
+      reachX: 0, reachY: 0 // reach target
+    });
   }
-  if (c.isWeb && c.state === "exploring") {
-    // Web exploration: move outward in fan pattern (deterministic drift)
-    // Target is a region, NOT a specific URL (we don't have URL data)
-    var t = (performance.now() - c.born) / 1000;
-    var baseX = W * 0.55, baseY = H * 0.5;
-    return {
-      x: baseX + Math.cos(c.angle * 2 + t * 0.3) * W * 0.28,
-      y: baseY + Math.sin(c.angle * 2 + t * 0.4) * H * 0.3
-    };
+  // Legs: 8 pairs around body
+  for (var j = 0; j < LEG_COUNT; j++) {
+    legs.push({ baseAngle: (j / LEG_COUNT) * Math.PI * 2, phase: (j % 2) * Math.PI });
   }
-  // Non-web or deploying: go to assigned node
-  if (c.nodeId != null && netNodes[c.nodeId]) {
-    return { x: netNodes[c.nodeId].x, y: netNodes[c.nodeId].y };
-  }
-  return { x: c.x, y: c.y };
 }
 
-function updateCrawlers(now) {
-  var sp = spiderPos();
-  for (var i = crawlers.length - 1; i >= 0; i--) {
-    var c = crawlers[i];
-    // fade in
-    if (c.alpha < 1 && c.state !== "returning") c.alpha = Math.min(1, c.alpha + 0.06);
-    // state transitions
-    if (c.state === "deploying") {
-      var d0 = Math.hypot(c.tx - c.x, c.ty - c.y);
-      if (d0 < 8) c.state = c.isWeb ? "exploring" : "working";
+// Cubic ease-in-out
+function easeInOut(t) {
+  return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+}
+
+/* ---------- TargetSelector ----------
+ * Picks the next tool node as spider target. Real data only.
+ * Returns null if no suitable target (spider idles honestly).
+ */
+function selectTarget() {
+  // Find the most recent active node (not faded, has position)
+  for (var i = netNodes.length - 1; i >= 0; i--) {
+    var n = netNodes[i];
+    if (!n.faded && n.status === "active") return n;
+  }
+  // Fallback: most recent node of any status
+  for (var j = netNodes.length - 1; j >= 0; j--) {
+    if (!netNodes[j].faded) return netNodes[j];
+  }
+  return null;
+}
+
+/* ---------- TentacleController ---------- */
+function tentacleBase(t) {
+  // Base point on body perimeter
+  var bx = spider.x + Math.cos(t.baseAngle + spider.angle) * 10;
+  var by = spider.y + Math.sin(t.baseAngle + spider.angle) * 10;
+  return { x: bx, y: by };
+}
+
+function startReach(targetNode) {
+  // Pick 2-3 tentacles closest to target direction
+  var dx = targetNode.x - spider.x, dy = targetNode.y - spider.y;
+  var targetAngle = Math.atan2(dy, dx);
+  var candidates = tentacles
+    .filter(function (t) { return t.state === "IDLE" || t.state === "SUPPORTING"; })
+    .map(function (t) {
+      var da = Math.abs(((t.baseAngle + spider.angle - targetAngle + Math.PI * 3) % (Math.PI * 2)) - Math.PI);
+      return { t: t, da: da };
+    })
+    .sort(function (a, b) { return a.da - b.da; })
+    .slice(0, 3);
+  var now = performance.now();
+  candidates.forEach(function (c, idx) {
+    var t = c.t;
+    t.state = "REACHING";
+    t.t0 = now + idx * 120; // staggered
+    t.dur = 500;
+    t.progress = 0;
+    t.reachX = targetNode.x;
+    t.reachY = targetNode.y;
+  });
+  spider.targetNodeId = targetNode.id;
+}
+
+function updateTentacles(now, dt) {
+  tentacles.forEach(function (t) {
+    var base = tentacleBase(t);
+    switch (t.state) {
+      case "IDLE":
+        // Gentle sway (not random: sinusoidal breathing)
+        var sway = Math.sin(now / 1200 + t.id) * 3;
+        t.tipX = base.x + Math.cos(t.baseAngle + spider.angle) * (18 + sway);
+        t.tipY = base.y + Math.sin(t.baseAngle + spider.angle) * (18 + sway);
+        break;
+      case "REACHING":
+      case "EXTENDING":
+        if (now < t.t0) break;
+        t.progress = Math.min(1, (now - t.t0) / t.dur);
+        var e = easeInOut(t.progress);
+        // Bezier: base -> control -> reach target
+        // Control point creates the curve (perpendicular offset)
+        var mx = (base.x + t.reachX) / 2, my = (base.y + t.reachY) / 2;
+        var dx = t.reachX - base.x, dy = t.reachY - base.y;
+        var len = Math.hypot(dx, dy) || 1;
+        var curveAmt = Math.min(40, len * 0.25);
+        t.ctrlX = mx - dy / len * curveAmt;
+        t.ctrlY = my + dx / len * curveAmt;
+        // Tip follows bezier
+        var mt = e;
+        t.tipX = (1 - mt) * (1 - mt) * base.x + 2 * (1 - mt) * mt * t.ctrlX + mt * mt * t.reachX;
+        t.tipY = (1 - mt) * (1 - mt) * base.y + 2 * (1 - mt) * mt * t.ctrlY + mt * mt * t.reachY;
+        if (t.progress >= 1) {
+          t.state = "ANCHORING";
+          t.t0 = now; t.dur = 200; t.progress = 0;
+        }
+        break;
+      case "ANCHORING":
+        t.progress = Math.min(1, (now - t.t0) / t.dur);
+        if (t.progress >= 1) {
+          t.state = "SUPPORTING";
+          t.anchorX = t.reachX; t.anchorY = t.reachY;
+          // Check if all reaching tentacles are anchored -> move body
+          maybeMoveBody();
+        }
+        break;
+      case "SUPPORTING":
+        // Stay anchored, but follow body movement (recalculate curve)
+        t.tipX = t.anchorX; t.tipY = t.anchorY;
+        var b2 = tentacleBase(t);
+        var mx2 = (b2.x + t.anchorX) / 2, my2 = (b2.y + t.anchorY) / 2;
+        var dx2 = t.anchorX - b2.x, dy2 = t.anchorY - b2.y;
+        var len2 = Math.hypot(dx2, dy2) || 1;
+        t.ctrlX = mx2 - dy2 / len2 * Math.min(40, len2 * 0.25);
+        t.ctrlY = my2 + dx2 / len2 * Math.min(40, len2 * 0.25);
+        break;
+      case "RELEASING":
+        t.progress = Math.min(1, (now - t.t0) / t.dur);
+        if (t.progress >= 1) { t.state = "RETRACTING"; t.t0 = now; t.dur = 400; t.progress = 0; }
+        break;
+      case "RETRACTING":
+        if (now < t.t0) break;
+        t.progress = Math.min(1, (now - t.t0) / t.dur);
+        var re = easeInOut(t.progress);
+        t.tipX = t.anchorX + (base.x + Math.cos(t.baseAngle) * 18 - t.anchorX) * re;
+        t.tipY = t.anchorY + (base.y + Math.sin(t.baseAngle) * 18 - t.anchorY) * re;
+        if (t.progress >= 1) t.state = "IDLE";
+        break;
     }
-    if (c.state === "returning") {
-      c.alpha -= 0.05;
-      if (c.alpha <= 0 || Math.hypot(sp.x - c.x, sp.y - c.y) < 12) {
-        crawlers.splice(i, 1);
-        continue;
+  });
+}
+
+function maybeMoveBody() {
+  // Move body only when at least 2 tentacles are anchored
+  var anchored = tentacles.filter(function (t) { return t.state === "ANCHORING" || t.state === "SUPPORTING"; });
+  if (anchored.length >= 2 && spider.state === "idle" && spider.targetNodeId != null) {
+    var target = netNodes[spider.targetNodeId];
+    if (target) {
+      // Body moves toward target, but stops short (doesn't overlap node)
+      var dx = target.x - spider.x, dy = target.y - spider.y;
+      var dist = Math.hypot(dx, dy);
+      if (dist > 30) {
+        spider.sx = spider.x; spider.sy = spider.y;
+        spider.tx = target.x - dx / dist * 24;
+        spider.ty = target.y - dy / dist * 24;
+        spider.state = "moving";
+        spider.moveT0 = performance.now();
+        spider.moveDur = Math.min(1200, 300 + dist * 2);
+        // Release oldest supporting tentacles (keep at least 2 anchored)
+        var supporting = tentacles.filter(function (t) { return t.state === "SUPPORTING"; });
+        if (supporting.length > 3) {
+          supporting.slice(0, supporting.length - 3).forEach(function (t) {
+            t.state = "RELEASING"; t.t0 = performance.now(); t.dur = 300; t.progress = 0;
+          });
+        }
       }
     }
-    var tgt = crawlerTarget(c);
-    c.tx = tgt.x; c.ty = tgt.y;
-    var dx = c.tx - c.x, dy = c.ty - c.y;
-    var d = Math.hypot(dx, dy);
-    var speed = c.isWeb ? 2.5 : 4;
-    if (d > 1) {
-      c.x += dx / d * Math.min(speed, d);
-      c.y += dy / d * Math.min(speed, d);
+  }
+}
+
+function updateSpiderBody(now) {
+  if (spider.state === "moving") {
+    var p = Math.min(1, (now - spider.moveT0) / spider.moveDur);
+    var e = easeInOut(p);
+    spider.x = spider.sx + (spider.tx - spider.sx) * e;
+    spider.y = spider.sy + (spider.ty - spider.sy) * e;
+    // Orient toward movement direction
+    var dx = spider.tx - spider.sx, dy = spider.ty - spider.sy;
+    if (Math.hypot(dx, dy) > 1) {
+      var targetAngle = Math.atan2(dy, dx);
+      // Smooth angle interpolation (shortest path)
+      var da = ((targetAngle - spider.angle + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
+      spider.angle += da * 0.1;
+    }
+    if (p >= 1) {
+      spider.state = "idle";
+      spider.targetNodeId = null;
     }
   }
-  // spider idle when no crawlers
-  if (!crawlers.length && masterSpiderEl) masterSpiderEl.classList.remove("working");
 }
 
-function recallCrawlers(nodeId) {
-  crawlers.forEach(function (c) {
-    if (c.nodeId === nodeId && c.state !== "returning") c.state = "returning";
+/* ---------- LegController ---------- */
+function updateLegs(now) {
+  var walking = spider.state === "moving";
+  legs.forEach(function (leg, i) {
+    if (walking) leg.phase += 0.25;
   });
-  netKick();
 }
 
-function drawCrawlers() {
-  if (!netCtx) return;
-  crawlers.forEach(function (c) {
-    if (c.alpha <= 0) return;
-    netCtx.globalAlpha = Math.max(0, c.alpha);
-    // crawler body: small diamond
-    var s = c.isWeb ? 4 : 3;
-    netCtx.beginPath();
-    netCtx.moveTo(c.x, c.y - s);
-    netCtx.lineTo(c.x + s, c.y);
-    netCtx.lineTo(c.x, c.y + s);
-    netCtx.lineTo(c.x - s, c.y);
-    netCtx.closePath();
-    netCtx.fillStyle = c.isWeb ? "#35e0ff" : "#a78bfa";
-    netCtx.shadowColor = c.isWeb ? "#35e0ff" : "#a78bfa";
-    netCtx.shadowBlur = 8;
-    netCtx.fill();
-    netCtx.shadowBlur = 0;
-    // trail
-    netCtx.beginPath();
-    netCtx.moveTo(c.x, c.y);
-    netCtx.lineTo(c.x - (c.tx - c.x) * 0.08, c.y - (c.ty - c.y) * 0.08);
-    netCtx.strokeStyle = c.isWeb ? "rgba(53,224,255,0.35)" : "rgba(167,139,250,0.35)";
-    netCtx.lineWidth = 1;
-    netCtx.stroke();
-    netCtx.globalAlpha = 1;
+function drawSpider(now) {
+  if (!netCtx || !spider.initialized) return;
+  var ctx = netCtx;
+  var dpr = window.devicePixelRatio || 1;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+  // Draw tentacles (behind body)
+  tentacles.forEach(function (t) {
+    var base = tentacleBase(t);
+    ctx.beginPath();
+    ctx.moveTo(base.x, base.y);
+    ctx.quadraticCurveTo(t.ctrlX || base.x, t.ctrlY || base.y, t.tipX, t.tipY);
+    var isActive = t.state === "REACHING" || t.state === "EXTENDING" || t.state === "ANCHORING";
+    ctx.strokeStyle = isActive ? "rgba(53,224,255,0.9)" : "rgba(53,224,255,0.35)";
+    ctx.lineWidth = isActive ? 1.8 : 1.2;
+    ctx.shadowColor = "#35e0ff";
+    ctx.shadowBlur = isActive ? 6 : 2;
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+    // Tip highlight when anchoring
+    if (t.state === "ANCHORING") {
+      ctx.beginPath();
+      ctx.arc(t.tipX, t.tipY, 3, 0, 7);
+      ctx.fillStyle = "#ff4fd8";
+      ctx.shadowColor = "#ff4fd8";
+      ctx.shadowBlur = 8;
+      ctx.fill();
+      ctx.shadowBlur = 0;
+    }
   });
+
+  // Draw legs (walk cycle)
+  legs.forEach(function (leg) {
+    var baseA = leg.baseAngle + spider.angle;
+    var bx = spider.x + Math.cos(baseA) * 8;
+    var by = spider.y + Math.sin(baseA) * 8;
+    var stepOffset = spider.state === "moving" ? Math.sin(leg.phase) * 4 : 0;
+    var kneeX = bx + Math.cos(baseA) * 10;
+    var kneeY = by + Math.sin(baseA) * 10 - 3;
+    var footX = bx + Math.cos(baseA) * 16 + stepOffset;
+    var footY = by + Math.sin(baseA) * 16;
+    ctx.beginPath();
+    ctx.moveTo(bx, by);
+    ctx.lineTo(kneeX, kneeY);
+    ctx.lineTo(footX, footY);
+    ctx.strokeStyle = "rgba(140,180,220,0.5)";
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  });
+
+  // Draw body (small, elegant)
+  ctx.save();
+  ctx.translate(spider.x, spider.y);
+  ctx.rotate(spider.angle);
+  // Abdomen
+  ctx.beginPath();
+  ctx.ellipse(-4, 0, 10, 7, 0, 0, 7);
+  ctx.fillStyle = "#0a1420";
+  ctx.strokeStyle = "#35e0ff";
+  ctx.lineWidth = 1.5;
+  ctx.fill(); ctx.stroke();
+  // Cephalothorax
+  ctx.beginPath();
+  ctx.ellipse(7, 0, 7, 5, 0, 0, 7);
+  ctx.fillStyle = "#0a1420";
+  ctx.strokeStyle = "#35e0ff";
+  ctx.fill(); ctx.stroke();
+  // Core (glowing)
+  ctx.beginPath();
+  ctx.arc(2, 0, 3.5, 0, 7);
+  ctx.fillStyle = "#ff4fd8";
+  ctx.shadowColor = "#ff4fd8";
+  ctx.shadowBlur = 10;
+  ctx.fill();
+  ctx.shadowBlur = 0;
+  // Eyes
+  ctx.beginPath();
+  ctx.arc(10, -2, 1.2, 0, 7);
+  ctx.arc(10, 2, 1.2, 0, 7);
+  ctx.fillStyle = "#35e0ff";
+  ctx.fill();
+  ctx.restore();
 }
+
+/* ---------- Spider update (called from netDraw) ---------- */
+function updateSpider(now, dt) {
+  if (!spider.initialized) initSpider();
+  updateTentacles(now, dt);
+  updateSpiderBody(now);
+  updateLegs(now);
+  drawSpider(now);
+}
+
+/* Called when a new tool node arrives: spider targets it */
+function spiderOnNewNode(node) {
+  if (!node || node.faded) return;
+  if (!spider.initialized) initSpider();
+  // Only target if spider is idle (don't interrupt mid-move)
+  if (spider.state === "idle") {
+    startReach(node);
+    netKick();
+  }
+}
+
 
 function netKick() {
   if (!netRunning && netCtx) {
@@ -628,7 +834,7 @@ function handleMessage(msg) {
     updateStats();
     var n = netAddNode(tool, node, ts, eid);
     if (n && eid) pendingNodes[eid] = n;
-    spawnCrawlers(tool, n); // crawlers deploy from spider (real event)
+    spiderOnNewNode(n); // spider targets the new node (tentacles reach first)
     // If no completion arrives: mark UNCERTAIN, never assume DONE.
     if (eid) {
       (function (id) {
@@ -660,7 +866,7 @@ function handleMessage(msg) {
         }
       }
     }
-    if (matchedNodeId != null) recallCrawlers(matchedNodeId);
+    if (matchedNodeId != null) { /* spider keeps position; tentacles stay */ }
     if (!ok && tool !== "db" && !matched) {
       // Failed without a prior START: create node directly as failed
       stats.tools++;
