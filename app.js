@@ -211,14 +211,17 @@ function netAddNode(tool, cat, ts, eventId) {
   netResize();
   var dpr = window.devicePixelRatio || 1;
   var W = netCanvas.width / dpr, H = netCanvas.height / dpr;
-  // Start near previous node (or center if first)
-  var px = W / 2, py = H / 2;
-  if (netSeq.length) {
-    var prev = netNodes[netSeq[netSeq.length - 1]];
-    if (prev) { px = prev.x + 40; py = prev.y; } // offset right, deterministic
-    px = Math.max(60, Math.min(W - 60, px));
-    py = Math.max(60, Math.min(H - 60, py));
-  }
+  // Deterministic phyllotaxis placement: spread real nodes across the
+  // available canvas instead of chaining every new node into one tiny row.
+  // This changes positions only; it does not invent nodes or relationships.
+  var index = netNodes.length;
+  var angle = index * 2.399963229728653; // golden angle
+  var minDim = Math.max(1, Math.min(W, H));
+  var radius = index === 0 ? 0 : Math.min(minDim * 0.38, Math.sqrt(index) * minDim * 0.105);
+  var px = W / 2 + Math.cos(angle) * radius;
+  var py = H / 2 + Math.sin(angle) * radius;
+  px = Math.max(36, Math.min(W - 36, px));
+  py = Math.max(64, Math.min(H - 64, py));
   var node = {
     id: netNodes.length, eid: eventId, tool: tool, cat: cat, ts: ts,
     x: px, y: py, vx: 0, vy: 0,
@@ -281,17 +284,9 @@ function netPhysics() {
       b.vx -= fx * 0.5; b.vy -= fy * 0.5;
     }
   }
-  // springs along edges
-  netEdges.forEach(function (e) {
-    var a = netNodes[e.a], b = netNodes[e.b];
-    if (!a || !b || a.faded || b.faded) return;
-    var dx = b.x - a.x, dy = b.y - a.y;
-    var d = Math.sqrt(dx * dx + dy * dy) || 1;
-    var target = 90;
-    var f = (d - target) * 0.02;
-    var fx = dx / d * f, fy = dy / d * f;
-    a.vx += fx; a.vy += fy; b.vx -= fx; b.vy -= fy;
-  });
+  // Temporal edges are visual references, not causal forces.
+  // Do not pull every node toward its predecessor: that collapses the
+  // workspace into a narrow chain even when the viewport is large.
   // gentle centering
   netNodes.forEach(function (n) {
     if (n.faded) return;
@@ -325,7 +320,9 @@ function netDraw(now) {
     netCtx.lineTo(b.x, b.y);
     netCtx.strokeStyle = "rgba(140,160,200," + alpha + ")";
     netCtx.lineWidth = 1;
+    netCtx.setLineDash([3, 5]); // chronology hint, not a causal edge
     netCtx.stroke();
+    netCtx.setLineDash([]);
   });
 
   // nodes
@@ -742,10 +739,9 @@ function netKick() {
   if (!netRunning && netCtx) {
     netRunning = true;
     requestAnimationFrame(netDraw);
-  } else if (netCtx) {
-    // already running; ensure one fresh frame for pop-in
-    requestAnimationFrame(netDraw);
   }
+  // If a frame loop is already active, let that loop render the new event.
+  // Scheduling a second loop here creates competing physics/render loops.
 }
 
 /* Click node -> detail panel (secondary, not dominating) */
