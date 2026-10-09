@@ -452,7 +452,8 @@
       const btn = document.createElement('div');
       btn.className = `step-node ${idx === 0 ? 'active' : ''}`;
       btn.innerText = c.name;
-      btn.onclick = () => switchCluster(idx, true);
+      btn.style.cursor = 'default';
+      btn.title = 'Auto-driven by telemetry';
       stepperContainer.appendChild(btn);
     });
     function switchCluster(idx, manual = false) {
