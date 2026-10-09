@@ -3,31 +3,30 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>SWARM — SPIDER Telemetry</title>
+<title>CRAWLER — SPIDER Telemetry</title>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
 <div id="cosmos">
   <div id="spacePhoto"></div>
-  <div id="nebulaDrift"></div>
 </div>
-<canvas id="swarmCanvas"></canvas>
 
 <header id="statsbar">
   <div class="stat"><span class="num" id="stTools">0</span><span class="lbl">TOOLS</span></div>
   <div class="stat"><span class="num" id="stNodes">0</span><span class="lbl">NODES</span></div>
-  <div class="stat"><span class="num" id="stTrails">0</span><span class="lbl">TRAILS</span></div>
+  <div class="stat"><span class="num" id="stEvents">0</span><span class="lbl">EVENTS</span></div>
   <div class="stat"><span class="num kept" id="stKept">0</span><span class="lbl">KEPT</span></div>
   <div class="stat"><span class="num skipped" id="stSkipped">0</span><span class="lbl">SKIPPED</span></div>
-  <div class="stat brain"><span class="num" id="brainDot">●</span><span class="lbl" id="brainText">BRAIN IDLE</span></div>
 </header>
 
-<aside id="feed">
-  <h2>Activity</h2>
-  <ul id="feedList"></ul>
-</aside>
+<main id="cardGrid"></main>
 
-<div id="connPill"><span id="connDot"></span><span id="connText">connecting</span></div>
+<footer id="jevbar">
+  <span class="jev-q">is this tool worth visualizing?</span>
+  <span class="jev-count"><b id="jevKept">0</b> KEPT</span>
+  <span class="jev-count"><b id="jevSkipped">0</b> SKIPPED</span>
+  <span id="connPill"><span id="connDot"></span><span id="connText">connecting</span></span>
+</footer>
 
 <script src="app.js"></script>
 </body>
