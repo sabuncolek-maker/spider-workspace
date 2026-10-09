@@ -28,7 +28,32 @@ function curve(a,b,c,d,e,f,g,h){ctx.beginPath();ctx.moveTo(a,b);ctx.bezierCurveT
 function easeInOut(p){return p<.5?4*p*p*p:1-Math.pow(-2*p+2,3)/2;}
 // Reference-style spider: simple dark disc + pink dot + 16 thin radiating lines.
 // Lines extend toward words; dotted tips like the reference. No anatomical legs, no tentacle state machine.
-function drawSpider(){const dx=spider.tx-spider.x,dy=spider.ty-spider.y;if(locomotionPending&&!bodyPull){bodyPull=true;spider.moveP=0;spider.sx=spider.x;spider.sy=spider.y;}if(bodyPull){spider.moveP=Math.min(1,(spider.moveP||0)+(reduced?.06:.02));const e=easeInOut(spider.moveP);spider.x=spider.sx+(spider.tx-spider.sx)*e;spider.y=spider.sy+(spider.ty-spider.sy)*e;if(spider.moveP>=1){spider.x=spider.tx;spider.y=spider.ty;bodyPull=false;locomotionPending=false;spider.moveP=0;trails.push({x:spider.x,y:spider.y,x2:spider.x+8,y2:spider.y,life:1,color:sections[sectionIndex].color});}}ctx.save();ctx.translate(spider.x,spider.y);ctx.scale(2.5,2.5);ctx.lineCap="round";const active=bodyPull||locomotionPending;for(let i=0;i<LINES;i++){const seed=lineSeeds[i],wave=Math.sin(t*1.6+seed.phase)*.05+Math.sin(t*2.7+seed.phase*1.6)*.025,angle=seed.baseAngle+wave,stretch=active?1.35:1,len=seed.len*stretch*(1+.08*Math.sin(t*2+seed.phase*2)),tx=Math.cos(angle)*len,ty=Math.sin(angle)*len,dotted=i%3===0;ctx.strokeStyle=i%2?"rgba(255,100,216,.75)":"rgba(53,224,255,.75)";ctx.lineWidth=.65;if(dotted)ctx.setLineDash([2.5,3]);ctx.beginPath();ctx.moveTo(Math.cos(angle)*7,Math.sin(angle)*7);ctx.lineTo(tx,ty);ctx.stroke();ctx.setLineDash([]);ctx.fillStyle="#e8fdff";ctx.beginPath();ctx.arc(tx,ty,.9,0,Math.PI*2);ctx.fill();}const pulse=1+Math.sin(t*6)*.1;ctx.save();ctx.shadowColor="#ff64d8";ctx.shadowBlur=20*pulse;ctx.fillStyle="#0a0f14";ctx.beginPath();ctx.arc(0,0,7,0,Math.PI*2);ctx.fill();ctx.restore();ctx.strokeStyle="#35e0ff";ctx.lineWidth=.9;ctx.beginPath();ctx.arc(0,0,7,0,Math.PI*2);ctx.stroke();ctx.fillStyle="#ff64d8";ctx.beginPath();ctx.arc(0,0,2.4,0,Math.PI*2);ctx.fill();ctx.restore();}
+function drawSpider(){const dx=spider.tx-spider.x,dy=spider.ty-spider.y;if(locomotionPending&&!bodyPull){bodyPull=true;spider.moveP=0;spider.sx=spider.x;spider.sy=spider.y;}if(bodyPull){spider.moveP=Math.min(1,(spider.moveP||0)+(reduced?.06:.02));const e=easeInOut(spider.moveP);spider.x=spider.sx+(spider.tx-spider.sx)*e;spider.y=spider.sy+(spider.ty-spider.sy)*e;if(spider.moveP>=1){spider.x=spider.tx;spider.y=spider.ty;bodyPull=false;locomotionPending=false;spider.moveP=0;trails.push({x:spider.x,y:spider.y,x2:spider.x+8,y2:spider.y,life:1,color:sections[sectionIndex].color});}}ctx.save();ctx.translate(spider.x,spider.y);ctx.scale(2.5,2.5);ctx.lineCap="round";const s=sections[sectionIndex],active=bodyPull||locomotionPending,nw=s.words.length;
+for(let i=0;i<LINES;i++){
+const seed=lineSeeds[i],wi=i%Math.max(1,nw),wp=wordPoint(s,wi),
+wLocalX=(wp.x-spider.x)/2.5,wLocalY=(wp.y-spider.y)/2.5,
+wDist=Math.hypot(wLocalX,wLocalY),wAngle=Math.atan2(wLocalY,wLocalX);
+let angle,len,touching=false;
+if(nw>0&&wDist<120){
+const blend=active?.85:.45;
+angle=seed.baseAngle*(1-blend)+wAngle*blend;
+const targetLen=Math.min(wDist,70);
+len=seed.len*(1-blend)+targetLen*blend;
+len*=1+.06*Math.sin(t*2+seed.phase*2);
+touching=Math.abs(len-wDist)<10&&wDist<70;
+}else{
+const wave=Math.sin(t*1.6+seed.phase)*.05+Math.sin(t*2.7+seed.phase*1.6)*.025;
+angle=seed.baseAngle+wave;
+len=seed.len*(active?1.2:1)*(1+.08*Math.sin(t*2+seed.phase*2));
+}
+const tx=Math.cos(angle)*len,ty=Math.sin(angle)*len,dotted=i%3===0;
+ctx.strokeStyle=touching?"#ffffff":i%2?"rgba(255,100,216,.75)":"rgba(53,224,255,.75)";
+ctx.lineWidth=touching?.9:.65;
+if(dotted)ctx.setLineDash([2.5,3]);
+ctx.beginPath();ctx.moveTo(Math.cos(angle)*7,Math.sin(angle)*7);ctx.lineTo(tx,ty);ctx.stroke();ctx.setLineDash([]);
+if(touching){ctx.save();ctx.shadowColor="#fff";ctx.shadowBlur=8;ctx.fillStyle="#ffffff";ctx.beginPath();ctx.arc(tx,ty,1.3,0,Math.PI*2);ctx.fill();ctx.restore();}
+else{ctx.fillStyle="#e8fdff";ctx.beginPath();ctx.arc(tx,ty,.9,0,Math.PI*2);ctx.fill();}
+}const pulse=1+Math.sin(t*6)*.1;ctx.save();ctx.shadowColor="#ff64d8";ctx.shadowBlur=20*pulse;ctx.fillStyle="#0a0f14";ctx.beginPath();ctx.arc(0,0,7,0,Math.PI*2);ctx.fill();ctx.restore();ctx.strokeStyle="#35e0ff";ctx.lineWidth=.9;ctx.beginPath();ctx.arc(0,0,7,0,Math.PI*2);ctx.stroke();ctx.fillStyle="#ff64d8";ctx.beginPath();ctx.arc(0,0,2.4,0,Math.PI*2);ctx.fill();ctx.restore();}
 function frame(){t+=.016;drawBackground();cameraX+=(spider.x-W*.5-cameraX)*.08;cameraY+=(spider.y-H*.5-cameraY)*.08;ctx.save();ctx.translate(-cameraX,-cameraY);sections.forEach(drawCluster);drawTrails();drawSpider();ctx.restore();requestAnimationFrame(frame);}
 function drawTrails(){for(let i=trails.length-1;i>=0;i--){const p=trails[i];p.life-=.012;if(p.life<=0){trails.splice(i,1);continue;}ctx.globalAlpha=Math.max(0,p.life)*.45;ctx.strokeStyle=p.color;ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(p.x,p.y);ctx.lineTo(p.x2,p.y2);ctx.stroke();}ctx.globalAlpha=1;}
 function wordPoint(s,j){const cols=W<700?2:Math.min(3,s.words.length),cellW=(s.rx*1.72)/cols,rows=Math.ceil(s.words.length/cols),rowH=Math.min(24,(s.ry*1.25)/Math.max(1,rows)),col=j%cols,row=Math.floor(j/cols);return{x:s.x+(col-(cols-1)/2)*cellW,y:s.y-s.ry*.15+row*rowH+8};}
