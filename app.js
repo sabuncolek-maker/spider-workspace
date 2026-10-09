@@ -295,6 +295,12 @@
     var cx = bcx + (w1c_cam.fx - bcx) * W1C_PAN;
     var cy = bcy + (w1c_cam.fy - bcy) * W1C_PAN;
     svg.setAttribute("viewBox", (cx - w / 2).toFixed(1) + " " + (cy - h / 2).toFixed(1) + " " + w.toFixed(1) + " " + h.toFixed(1));
+    // W3-E: depth parallax — background moves slightly slower than navigation
+    var ambient = document.getElementById("ambient");
+    if (ambient && !prefersReducedMotion) {
+      var px = (cx - bcx) * 0.15, py = (cy - bcy) * 0.15;
+      ambient.setAttribute("transform", "translate(" + px.toFixed(1) + " " + py.toFixed(1) + ")");
+    }
   }
   function w1c_setTarget(fx, fy, zoom) {
     if (prefersReducedMotion) return;
@@ -332,6 +338,69 @@
       }
     };
     w1c_returnRaf = requestAnimationFrame(step);
+  }
+
+  /* ---------- W3-B: Contact shadows ----------
+   * Visual only. Small dots at foot positions during SUPPORT phase.
+   * Reads gait state, does not modify gait logic. No Math.random(). */
+  var w3b_contacts = [];
+  var w3b_contactsG = null;
+  function w3b_initContacts() {
+    if (prefersReducedMotion) return;
+    var svg = document.getElementById("web");
+    var spider = document.getElementById("spider");
+    w3b_contactsG = document.createElementNS("http://www.w3.org/2000/svg", "g");
+    w3b_contactsG.setAttribute("id", "w3b-contacts");
+    w3b_contactsG.setAttribute("pointer-events", "none");
+    svg.insertBefore(w3b_contactsG, spider);
+    for (var i = 0; i < 8; i++) {
+      var c = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+      c.setAttribute("r", "2.5");
+      c.setAttribute("class", "w3b-contact");
+      c.setAttribute("opacity", "0");
+      w3b_contactsG.appendChild(c);
+      w3b_contacts.push(c);
+    }
+  }
+  function w3b_updateContacts() {
+    if (prefersReducedMotion || !w3b_contactsG) return;
+    for (var i = 0; i < 8; i++) {
+      var L = gait.legs[i];
+      var c = w3b_contacts[i];
+      if (L.phase < 0.6 && L.locked) {
+        // SUPPORT: show contact at locked foot position
+        c.setAttribute("cx", L.locked.x.toFixed(1));
+        c.setAttribute("cy", L.locked.y.toFixed(1));
+        c.setAttribute("opacity", "0.35");
+      } else {
+        c.setAttribute("opacity", "0");
+      }
+    }
+  }
+
+  /* ---------- W3-D: Organic body response ----------
+   * Visual only. Subtle bob/sway based on existing gait motion.
+   * Does not modify gait timing, IK, or locomotion. No Math.random(). */
+  var w3d_bodyEl = null;
+  function w3d_init() {
+    if (prefersReducedMotion) return;
+    w3d_bodyEl = document.getElementById("spiderBody");
+  }
+  function w3d_updateBody() {
+    if (prefersReducedMotion || !w3d_bodyEl) return;
+    // Average leg phase for bob sync
+    var avgPhase = 0;
+    for (var i = 0; i < 8; i++) avgPhase += gait.legs[i].phase;
+    avgPhase /= 8;
+    // Very subtle bob: ±1px at 2x gait frequency
+    var bob = Math.sin(avgPhase * Math.PI * 4) * 1.0;
+    // Sway based on velocity (max ±1.5px)
+    var sway = 0;
+    if (gait.vel > 1) {
+      sway = Math.min(gait.vel / 100, 1.5);
+      // Sway perpendicular to movement direction
+    }
+    w3d_bodyEl.setAttribute("transform", "translate(0 " + bob.toFixed(2) + ")");
   }
 
   /* ---------- route graph (Design B, Phase 1) ----------
@@ -1126,6 +1195,8 @@
           // L2/L3 gait: update from actual velocity + path tangent.
           updateGait(now, pt.x, pt.y, tangentDeg);
           w1c_updateCamera(); // W1-C: subtle focus follows during journey
+          w3b_updateContacts(); // W3-B: foot contact shadows
+          w3d_updateBody(); // W3-D: organic body bob
         }
       } else {
         // Hub pause: L4 mini-steps if turning, else settle
@@ -1229,6 +1300,8 @@
     var key = String(tool).toLowerCase();
     if (TOOL_NODE[key]) return TOOL_NODE[key];
     if (key.indexOf("search") !== -1) return "SEARCH";
+    // Consistent with Python bridge fallback: browser tools -> COLLECT
+    if (key.indexOf("browser") !== -1) return "COLLECT";
     return "UNKNOWN";
   }
 
@@ -1393,6 +1466,8 @@
   // Connection states: CONNECTING (initial) | LIVE (socket open) |
   // RECONNECTING (closed, retry scheduled) | FALLBACK (max retries, polling only)
   var wsStatus = "CONNECTING";
+  var lastEventTs = 0; // timestamp of last valid activity event (for freshness)
+  var FRESHNESS_MS = 60000; // data older than 60s -> STALE
   var wsRetryMs = 2000;
   var WS_RETRY_MAX = 60000;
   var WS_MAX_FAILS = 5; // after this many failed attempts -> FALLBACK
@@ -1406,17 +1481,29 @@
     var dot = document.getElementById("connDot");
     var txt = document.getElementById("connText");
     if (!dot || !txt) return;
-    var cls = status === "LIVE" ? "on" : (status === "CONNECTING" || status === "RECONNECTING") ? "mid" : "";
+    var cls = status === "LIVE" ? "on" : (status === "CONNECTING" || status === "RECONNECTING") ? "mid" : (status === "STALE" ? "stale" : "");
     dot.setAttribute("class", cls);
     txt.setAttribute("class", cls);
     txt.textContent = status;
     var titles = {
-      LIVE: "realtime via WebSocket — connected",
+      LIVE: "realtime via WebSocket — connected, data fresh",
+      STALE: "connected but data is stale (no recent activity)",
       CONNECTING: "connecting to realtime channel…",
       RECONNECTING: "connection lost — retrying…",
-      FALLBACK: "realtime unavailable — polling state.json"
+      FALLBACK: "realtime unavailable — polling state.json",
+      DISCONNECTED: "websocket disconnected"
     };
     txt.setAttribute("title", titles[status] || status);
+  }
+  function checkFreshness() {
+    // Called periodically: LIVE -> STALE if no recent event
+    if (wsStatus !== "LIVE" && wsStatus !== "STALE") return;
+    var age = Date.now() - lastEventTs;
+    if (lastEventTs > 0 && age > FRESHNESS_MS) {
+      if (wsStatus !== "STALE") setConn("STALE");
+    } else if (wsStatus === "STALE" && age <= FRESHNESS_MS) {
+      setConn("LIVE");
+    }
   }
 
   /* Validate + dedup a realtime envelope, then apply its state.
@@ -1613,6 +1700,7 @@
       if (isSystem) return true;
       // every valid TOOL_STARTED enters the visual FIFO; nothing is dropped
       // for arriving fast. History records it in real time.
+      lastEventTs = Date.now(); // freshness: valid activity received
       visualQueue.push({ node: node, tool: tool, event_id: msg.event_id,
                          ts: ts, status: "started" });
       addEventHistory(ts, node, tool, "STARTED");
@@ -1764,12 +1852,13 @@
       if (wsStatus === "LIVE") onWsDown();
       return;
     }
-    if (ws.readyState === 1 && wsStatus !== "LIVE") setConn("LIVE");
-    else if (ws.readyState === 0 && (wsStatus === "LIVE" || wsStatus === "FALLBACK")) {
+    if (ws.readyState === 1 && wsStatus !== "LIVE" && wsStatus !== "STALE") setConn("LIVE");
+    else if (ws.readyState === 0 && (wsStatus === "LIVE" || wsStatus === "STALE" || wsStatus === "FALLBACK")) {
       setConn(wsFails > 0 ? "RECONNECTING" : "CONNECTING");
-    } else if (ws.readyState >= 2 && wsStatus === "LIVE") {
+    } else if (ws.readyState >= 2 && (wsStatus === "LIVE" || wsStatus === "STALE")) {
       onWsDown();
     }
+    checkFreshness(); // update LIVE/STALE based on data age
   }, 5000);
 
   // expose for tests (node --check friendly, no-ops in browser)
@@ -1816,4 +1905,6 @@
   setConn("CONNECTING");
   connectWs();
   w1b_initTrail(); // W1-B3: spider trail observer
+  w3b_initContacts(); // W3-B: foot contact shadows
+  w3d_init(); // W3-D: organic body response
 })();

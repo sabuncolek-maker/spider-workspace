@@ -114,12 +114,14 @@ body {
 }
 #connDot.on { background: var(--ok); box-shadow: 0 0 6px rgba(127, 174, 122, 0.55); }
 #connDot.mid { background: var(--accent); }
+#connDot.stale { background: #b0a060; } /* amber: connected but data old */
 #connText {
   font-family: var(--mono); font-size: 9px; letter-spacing: 0.16em;
   color: var(--faint); margin-left: -6px;
 }
 #connText.on { color: var(--ok); }
 #connText.mid { color: var(--accent); }
+#connText.stale { color: #b0a060; }
 #queuePill {
   font-family: var(--mono); font-size: 9px; letter-spacing: 0.16em;
   color: var(--accent); border: 1px solid var(--accent);
@@ -235,6 +237,23 @@ g.node.dim.dashed .node-ring { stroke-dasharray: 4 5; }
 
 /* W1-A: ambient static world — depth via opacity, never competes with spider */
 #ambient { pointer-events: none; }
+/* W3-A: depth layers — spider as foreground (subtle lift from background) */
+#spider {
+  filter: drop-shadow(0 3px 6px rgba(0, 0, 0, 0.5));
+}
+/* W3-B: contact shadows — subtle dots at foot positions */
+.w3b-contact {
+  fill: #000; stroke: none;
+}
+/* W3-C: body depth — front/rear leg separation (subtle) */
+#leg0, #leg4 { opacity: 1; } /* front pair: most present */
+#leg1, #leg5 { opacity: 0.95; }
+#leg2, #leg6 { opacity: 0.9; }
+#leg3, #leg7 { opacity: 0.85; } /* rear pair: recede slightly */
+/* W3-C: subtle body highlight (very restrained) */
+#spiderBody ellipse {
+  fill: #1a1d23; /* slightly lighter than background */
+}
 .amb-edge { stroke: #8a93a6; stroke-width: 0.7; fill: none; }
 .amb-node { fill: #8a93a6; }
 /* W2-D: activity decay — smooth 2s return to baseline (no JS loop) */
