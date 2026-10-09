@@ -513,6 +513,7 @@
       "translate(0," + (-LEG_UL) + ") rotate(" + (h.kneeBend + kneeDelta) + ")");
     j.ankle.setAttribute("transform",
       "translate(0," + (-LEG_LL) + ") rotate(" + (h.ankleBend + ankleDelta) + ")");
+    updateOrganicLegVisual(i);
   }
 
   // Recompute the organic curve whenever IK changes the pose.
