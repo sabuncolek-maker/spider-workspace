@@ -24,9 +24,11 @@ function resize(){dpr=Math.min(devicePixelRatio||1,2);W=canvas.clientWidth;H=can
 function layout(){const mobile=W<700,top=48,bottom=18,areaH=Math.max(260,H-top-bottom),cols=mobile?2:4,rows=Math.ceil(sections.length/cols);sections.forEach((s,i)=>{const col=i%cols,row=Math.floor(i/cols);s.x=W*(col+.5)/cols;s.y=top+areaH*(row+.5)/rows;const cellW=W/cols;s.rx=Math.max(52,cellW*.43);s.ry=Math.min(49,areaH/rows*.43);});if(!spider.x){spider.x=W*.5;spider.y=top+areaH*.5;spider.tx=sections[0].x;spider.ty=sections[0].y;}}
 function drawBackground(){ctx.fillStyle="#03050a";ctx.fillRect(0,0,W,H);ctx.save();for(const s of stars){const x=((W*.5+s.x-spider.x*.18)% (W+20)+(W+20))%(W+20)-10;const y=((H*.5+s.y-spider.y*.18)%(H+20)+(H+20))%(H+20)-10;ctx.globalAlpha=s.a*(.65+.35*Math.sin(t*.7+s.x*.02));ctx.fillStyle="#8bdfff";ctx.beginPath();ctx.arc(x,y,s.r,0,Math.PI*2);ctx.fill();}ctx.globalAlpha=1;ctx.restore();}
 function drawCluster(s,i){const active=i===sectionIndex;ctx.save();ctx.translate(s.x,s.y);ctx.globalAlpha=active?1:.62;ctx.strokeStyle=s.color;ctx.fillStyle=s.color;ctx.lineWidth=active?1.2:.7;ctx.setLineDash(active?[]:[3,5]);ctx.beginPath();ctx.ellipse(0,0,s.rx,s.ry,0,0,Math.PI*2);ctx.stroke();ctx.setLineDash([]);ctx.font="700 10px monospace";ctx.textAlign="center";ctx.fillText(s.name,0,-s.ry+13);const cols=W<700?2:Math.min(3,s.words.length),cellW=(s.rx*1.72)/cols,rows=Math.ceil(s.words.length/cols),rowH=Math.min(24,(s.ry*1.25)/Math.max(1,rows));s.words.forEach((word,j)=>{const col=j%cols,row=Math.floor(j/cols),x=(col-(cols-1)/2)*cellW,y=-s.ry*.15+row*rowH+8;const isRead=i<sectionIndex||(i===sectionIndex&&j<wordIndex);
- // Honest words: only appear when agent works on them
+ // Honest words: appear when agent works on them
+ // Active section words appear immediately (agent is working here)
+ // Other sections: only if already read
  const wKey=i+"_"+j;
- if(isRead && !wordAppear[wKey]) wordAppear[wKey]=0;
+ if((isRead || i===sectionIndex) && wordAppear[wKey]===undefined) wordAppear[wKey]=0;
  if(wordAppear[wKey]!==undefined && wordAppear[wKey]<1) wordAppear[wKey]=Math.min(1,wordAppear[wKey]+.03);
  const appear=wordAppear[wKey]||0;
  if(appear<=0) return;ctx.font=(W<430?"9px":"10px")+" monospace";const labelW=Math.min(cellW-4,Math.max(38,ctx.measureText(word).width+12));ctx.globalAlpha=(active?1:.72)*appear;ctx.fillStyle=isRead?s.color:"#07111b";ctx.strokeStyle=s.color;ctx.lineWidth=.7;ctx.beginPath();ctx.roundRect(x-labelW/2,y-8,labelW,17,4);ctx.fill();ctx.stroke();ctx.fillStyle=isRead?"#05080c":s.color;ctx.fillText(word,x,y+3,labelW-6);if(active&&j===wordIndex){ctx.globalAlpha=1;ctx.strokeStyle="#fff";ctx.lineWidth=1.4;ctx.beginPath();ctx.roundRect(x-labelW/2-2,y-10,labelW+4,21,5);ctx.stroke();}});ctx.restore();}
