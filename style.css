@@ -230,13 +230,21 @@ g.node.failed .node-label { fill: var(--error); }
 g.node.dim { opacity: 0.45; }
 g.node.dim.dashed .node-ring { stroke-dasharray: 4 5; }
 
-.thread { stroke: var(--line); stroke-width: 1; }
-.thread.lit { stroke: rgba(217, 164, 65, 0.16); }
+.thread { stroke: var(--line); stroke-width: 0.72; opacity: 0.38; }
+.thread.lit { stroke: rgba(217, 164, 65, 0.14); opacity: 0.72; }
 
 /* W1-A: ambient static world — depth via opacity, never competes with spider */
 #ambient { pointer-events: none; }
 .amb-edge { stroke: #8a93a6; stroke-width: 0.55; fill: none; }
 .amb-node { fill: #8a93a6; }
+.amb-strand { fill: none; stroke: #8a93a6; stroke-width: 0.65; stroke-linecap: round; opacity: 0.13; }
+.amb-junction { fill: #8a93a6; opacity: 0.14; }
+.amb-strand.amb-near { opacity: 0.15; }
+.amb-strand.amb-mid { opacity: 0.105; }
+.amb-strand.amb-far { opacity: 0.07; }
+.amb-junction.amb-near { opacity: 0.16; }
+.amb-junction.amb-mid { opacity: 0.11; }
+.amb-junction.amb-far { opacity: 0.07; }
 /* W2-D: activity decay — smooth 2s return to baseline (no JS loop) */
 #ambient [data-c] { transition: opacity 2s ease; }
 .amb-main-path { fill: none; stroke: #9aa3b8; stroke-width: 1; }
@@ -299,7 +307,7 @@ g.node.dim.dashed .node-ring { stroke-dasharray: 4 5; }
 }
 
 /* Design B Phase 1: capture spiral (very subtle) + invisible route paths */
-.spiral { fill: none; stroke: var(--line); stroke-width: 1; opacity: 0.7; }
+.spiral { fill: none; stroke: var(--line); stroke-width: 0.7; opacity: 0.16; }
 #routes { visibility: hidden; pointer-events: none; }
 
 #spider { transition: none; } /* Design B Phase 2: rAF drives transform; no CSS transition */
