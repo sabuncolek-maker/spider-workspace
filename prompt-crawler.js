@@ -12,6 +12,7 @@ const sections=[
  {name:"SHIP",sub:"Verified result",color:"#ff64d8",words:["Clear answer","Traceable","ready to ship"]}
 ];
 let W=0,H=0,dpr=1,t=0,sectionIndex=0,wordIndex=0,read=0,links=0,flags=0,lastEventAt=0,lastEventId="",socketState="CONNECTING";
+const wordAppear={};
 let spider={x:0,y:0,tx:0,ty:0};
 const LINES=16;
 const lineSeeds=Array.from({length:LINES},(_,i)=>({baseAngle:i*Math.PI*2/LINES,phase:i*.9,len:26+(i%4)*7}));
@@ -22,36 +23,57 @@ const reduced=matchMedia("(prefers-reduced-motion: reduce)").matches;
 function resize(){dpr=Math.min(devicePixelRatio||1,2);W=canvas.clientWidth;H=canvas.clientHeight;canvas.width=W*dpr;canvas.height=H*dpr;ctx.setTransform(dpr,0,0,dpr,0,0);layout();}
 function layout(){const mobile=W<700,top=48,bottom=18,areaH=Math.max(260,H-top-bottom),cols=mobile?2:4,rows=Math.ceil(sections.length/cols);sections.forEach((s,i)=>{const col=i%cols,row=Math.floor(i/cols);s.x=W*(col+.5)/cols;s.y=top+areaH*(row+.5)/rows;const cellW=W/cols;s.rx=Math.max(52,cellW*.43);s.ry=Math.min(49,areaH/rows*.43);});if(!spider.x){spider.x=W*.5;spider.y=top+areaH*.5;spider.tx=sections[0].x;spider.ty=sections[0].y;}}
 function drawBackground(){ctx.fillStyle="#03050a";ctx.fillRect(0,0,W,H);ctx.save();for(const s of stars){const x=((W*.5+s.x-spider.x*.18)% (W+20)+(W+20))%(W+20)-10;const y=((H*.5+s.y-spider.y*.18)%(H+20)+(H+20))%(H+20)-10;ctx.globalAlpha=s.a*(.65+.35*Math.sin(t*.7+s.x*.02));ctx.fillStyle="#8bdfff";ctx.beginPath();ctx.arc(x,y,s.r,0,Math.PI*2);ctx.fill();}ctx.globalAlpha=1;ctx.restore();}
-function drawCluster(s,i){const active=i===sectionIndex;ctx.save();ctx.translate(s.x,s.y);ctx.globalAlpha=active?1:.62;ctx.strokeStyle=s.color;ctx.fillStyle=s.color;ctx.lineWidth=active?1.2:.7;ctx.setLineDash(active?[]:[3,5]);ctx.beginPath();ctx.ellipse(0,0,s.rx,s.ry,0,0,Math.PI*2);ctx.stroke();ctx.setLineDash([]);ctx.font="700 10px monospace";ctx.textAlign="center";ctx.fillText(s.name,0,-s.ry+13);const cols=W<700?2:Math.min(3,s.words.length),cellW=(s.rx*1.72)/cols,rows=Math.ceil(s.words.length/cols),rowH=Math.min(24,(s.ry*1.25)/Math.max(1,rows));s.words.forEach((word,j)=>{const col=j%cols,row=Math.floor(j/cols),x=(col-(cols-1)/2)*cellW,y=-s.ry*.15+row*rowH+8;const isRead=i<sectionIndex||(i===sectionIndex&&j<wordIndex);ctx.font=(W<430?"9px":"10px")+" monospace";const labelW=Math.min(cellW-4,Math.max(38,ctx.measureText(word).width+12));ctx.globalAlpha=active?1:.72;ctx.fillStyle=isRead?s.color:"#07111b";ctx.strokeStyle=s.color;ctx.lineWidth=.7;ctx.beginPath();ctx.roundRect(x-labelW/2,y-8,labelW,17,4);ctx.fill();ctx.stroke();ctx.fillStyle=isRead?"#05080c":s.color;ctx.fillText(word,x,y+3,labelW-6);if(active&&j===wordIndex){ctx.globalAlpha=1;ctx.strokeStyle="#fff";ctx.lineWidth=1.4;ctx.beginPath();ctx.roundRect(x-labelW/2-2,y-10,labelW+4,21,5);ctx.stroke();}});ctx.restore();}
+function drawCluster(s,i){const active=i===sectionIndex;ctx.save();ctx.translate(s.x,s.y);ctx.globalAlpha=active?1:.62;ctx.strokeStyle=s.color;ctx.fillStyle=s.color;ctx.lineWidth=active?1.2:.7;ctx.setLineDash(active?[]:[3,5]);ctx.beginPath();ctx.ellipse(0,0,s.rx,s.ry,0,0,Math.PI*2);ctx.stroke();ctx.setLineDash([]);ctx.font="700 10px monospace";ctx.textAlign="center";ctx.fillText(s.name,0,-s.ry+13);const cols=W<700?2:Math.min(3,s.words.length),cellW=(s.rx*1.72)/cols,rows=Math.ceil(s.words.length/cols),rowH=Math.min(24,(s.ry*1.25)/Math.max(1,rows));s.words.forEach((word,j)=>{const col=j%cols,row=Math.floor(j/cols),x=(col-(cols-1)/2)*cellW,y=-s.ry*.15+row*rowH+8;const isRead=i<sectionIndex||(i===sectionIndex&&j<wordIndex);
+ // Honest words: only appear when agent works on them
+ const wKey=i+"_"+j;
+ if(isRead && !wordAppear[wKey]) wordAppear[wKey]=0;
+ if(wordAppear[wKey]!==undefined && wordAppear[wKey]<1) wordAppear[wKey]=Math.min(1,wordAppear[wKey]+.03);
+ const appear=wordAppear[wKey]||0;
+ if(appear<=0) return;ctx.font=(W<430?"9px":"10px")+" monospace";const labelW=Math.min(cellW-4,Math.max(38,ctx.measureText(word).width+12));ctx.globalAlpha=(active?1:.72)*appear;ctx.fillStyle=isRead?s.color:"#07111b";ctx.strokeStyle=s.color;ctx.lineWidth=.7;ctx.beginPath();ctx.roundRect(x-labelW/2,y-8,labelW,17,4);ctx.fill();ctx.stroke();ctx.fillStyle=isRead?"#05080c":s.color;ctx.fillText(word,x,y+3,labelW-6);if(active&&j===wordIndex){ctx.globalAlpha=1;ctx.strokeStyle="#fff";ctx.lineWidth=1.4;ctx.beginPath();ctx.roundRect(x-labelW/2-2,y-10,labelW+4,21,5);ctx.stroke();}});ctx.restore();}
 function curve(a,b,c,d,e,f,g,h){ctx.beginPath();ctx.moveTo(a,b);ctx.bezierCurveTo(c,d,e,f,g,h);ctx.stroke();}
 // Cubic ease-in-out (PR #29 locomotion)
 function easeInOut(p){return p<.5?4*p*p*p:1-Math.pow(-2*p+2,3)/2;}
 // Reference-style spider: simple dark disc + pink dot + 16 thin radiating lines.
 // Lines extend toward words; dotted tips like the reference. No anatomical legs, no tentacle state machine.
 function drawSpider(){const dx=spider.tx-spider.x,dy=spider.ty-spider.y;if(locomotionPending&&!bodyPull){bodyPull=true;spider.moveP=0;spider.sx=spider.x;spider.sy=spider.y;}if(bodyPull){spider.moveP=Math.min(1,(spider.moveP||0)+(reduced?.06:.02));const e=easeInOut(spider.moveP);spider.x=spider.sx+(spider.tx-spider.sx)*e;spider.y=spider.sy+(spider.ty-spider.sy)*e;if(spider.moveP>=1){spider.x=spider.tx;spider.y=spider.ty;bodyPull=false;locomotionPending=false;spider.moveP=0;trails.push({x:spider.x,y:spider.y,x2:spider.x+8,y2:spider.y,life:1,color:sections[sectionIndex].color});}}ctx.save();ctx.translate(spider.x,spider.y);ctx.scale(2.5,2.5);ctx.lineCap="round";const s=sections[sectionIndex],active=bodyPull||locomotionPending,nw=s.words.length;
+// Gravitational pull model: words attract line tips (not spider aiming at words)
+// Each visible word exerts pull within PULL_RADIUS; tips accelerate toward nearest word
+const PULL_RADIUS=55;
 for(let i=0;i<LINES;i++){
-const seed=lineSeeds[i],wi=i%Math.max(1,nw),wp=wordPoint(s,wi),
-wLocalX=(wp.x-spider.x)/2.5,wLocalY=(wp.y-spider.y)/2.5,
-wDist=Math.hypot(wLocalX,wLocalY),wAngle=Math.atan2(wLocalY,wLocalX);
-let angle,len,touching=false;
-if(nw>0&&wDist<120){
-const blend=active?.85:.45;
-angle=seed.baseAngle*(1-blend)+wAngle*blend;
-const targetLen=Math.min(wDist,70);
-len=seed.len*(1-blend)+targetLen*blend;
-len*=1+.06*Math.sin(t*2+seed.phase*2);
-touching=Math.abs(len-wDist)<10&&wDist<70;
-}else{
+const seed=lineSeeds[i];
+// Base radial direction with organic wave
 const wave=Math.sin(t*1.6+seed.phase)*.05+Math.sin(t*2.7+seed.phase*1.6)*.025;
-angle=seed.baseAngle+wave;
-len=seed.len*(active?1.2:1)*(1+.08*Math.sin(t*2+seed.phase*2));
+const baseAngle=seed.baseAngle+wave;
+let tipX=Math.cos(baseAngle)*seed.len, tipY=Math.sin(baseAngle)*seed.len;
+let bestPull=null, bestDist=Infinity;
+// Find nearest visible word within pull radius (in spider-local coords)
+if(nw>0){
+for(let j=0;j<nw;j++){
+const wKey=sectionIndex+"_"+j;
+if(!wordAppear[wKey]||wordAppear[wKey]<.5) continue;
+const wp=wordPoint(s,j);
+const wlx=(wp.x-spider.x)/2.5, wly=(wp.y-spider.y)/2.5;
+const wd=Math.hypot(wlx,wly);
+if(wd<PULL_RADIUS&&wd<bestDist){bestDist=wd;bestPull={x:wlx,y:wly,d:wd};}
 }
-const tx=Math.cos(angle)*len,ty=Math.sin(angle)*len,dotted=i%3===0;
+}
+// Apply gravitational pull: tip drawn toward word center, strength = 1/d
+let touching=false;
+if(bestPull){
+const pullStrength=Math.min(1,(PULL_RADIUS-bestPull.d)/PULL_RADIUS);
+const blend=active?.9:.65*pullStrength+.25;
+tipX=tipX*(1-blend)+bestPull.x*blend;
+tipY=tipY*(1-blend)+bestPull.y*blend;
+touching=pullStrength>.7;
+}
+const tipAngle=Math.atan2(tipY,tipX), tipLen=Math.hypot(tipX,tipY);
+const tx=Math.cos(tipAngle)*tipLen, ty=Math.sin(tipAngle)*tipLen;
+const dotted=i%3===0;
 ctx.strokeStyle=touching?"#ffffff":i%2?"rgba(255,100,216,.75)":"rgba(53,224,255,.75)";
 ctx.lineWidth=touching?.9:.65;
 if(dotted)ctx.setLineDash([2.5,3]);
-ctx.beginPath();ctx.moveTo(Math.cos(angle)*7,Math.sin(angle)*7);ctx.lineTo(tx,ty);ctx.stroke();ctx.setLineDash([]);
-if(touching){ctx.save();ctx.shadowColor="#fff";ctx.shadowBlur=8;ctx.fillStyle="#ffffff";ctx.beginPath();ctx.arc(tx,ty,1.3,0,Math.PI*2);ctx.fill();ctx.restore();}
+ctx.beginPath();ctx.moveTo(Math.cos(tipAngle)*7,Math.sin(tipAngle)*7);ctx.lineTo(tx,ty);ctx.stroke();ctx.setLineDash([]);
+if(touching){ctx.save();ctx.shadowColor="#fff";ctx.shadowBlur=10;ctx.fillStyle="#ffffff";ctx.beginPath();ctx.arc(tx,ty,1.4,0,Math.PI*2);ctx.fill();ctx.restore();}
 else{ctx.fillStyle="#e8fdff";ctx.beginPath();ctx.arc(tx,ty,.9,0,Math.PI*2);ctx.fill();}
 }const pulse=1+Math.sin(t*6)*.1;ctx.save();ctx.shadowColor="#ff64d8";ctx.shadowBlur=20*pulse;ctx.fillStyle="#0a0f14";ctx.beginPath();ctx.arc(0,0,7,0,Math.PI*2);ctx.fill();ctx.restore();ctx.strokeStyle="#35e0ff";ctx.lineWidth=.9;ctx.beginPath();ctx.arc(0,0,7,0,Math.PI*2);ctx.stroke();ctx.fillStyle="#ff64d8";ctx.beginPath();ctx.arc(0,0,2.4,0,Math.PI*2);ctx.fill();ctx.restore();}
 function frame(){t+=.016;drawBackground();cameraX+=(spider.x-W*.5-cameraX)*.08;cameraY+=(spider.y-H*.5-cameraY)*.08;ctx.save();ctx.translate(-cameraX,-cameraY);sections.forEach(drawCluster);drawTrails();drawSpider();ctx.restore();requestAnimationFrame(frame);}
