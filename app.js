@@ -1170,6 +1170,8 @@
         key.indexOf("inspect") !== -1) return "ANALYZE";
     if (key.indexOf("result") !== -1 || key.indexOf("final") !== -1) return "RESULT";
     if (key.indexOf("search") !== -1) return "SEARCH";
+    // Keep in sync with the bridge fallback: unclassified browser tools collect/read material.
+    if (key.indexOf("browser") !== -1) return "COLLECT";
     return "UNKNOWN";
   }
 
@@ -1334,6 +1336,9 @@
   // Connection states: CONNECTING (initial) | LIVE (socket open) |
   // RECONNECTING (closed, retry scheduled) | FALLBACK (max retries, polling only)
   var wsStatus = "CONNECTING";
+  var lastEventTs = 0; // receipt time of last valid, non-replay agent activity
+  var wsOpenedAt = 0;
+  var FRESHNESS_MS = 60000; // connected but no recent activity -> STALE
   var wsRetryMs = 2000;
   var WS_RETRY_MAX = 60000;
   var WS_MAX_FAILS = 5; // after this many failed attempts -> FALLBACK
@@ -1347,17 +1352,31 @@
     var dot = document.getElementById("connDot");
     var txt = document.getElementById("connText");
     if (!dot || !txt) return;
-    var cls = status === "LIVE" ? "on" : (status === "CONNECTING" || status === "RECONNECTING") ? "mid" : "";
+    var cls = status === "LIVE" ? "on" :
+      (status === "CONNECTING" || status === "RECONNECTING") ? "mid" :
+      (status === "STALE" ? "stale" : "");
     dot.setAttribute("class", cls);
     txt.setAttribute("class", cls);
     txt.textContent = status;
     var titles = {
-      LIVE: "realtime via WebSocket — connected",
+      LIVE: "realtime via WebSocket — connected, recent agent activity received",
+      STALE: "WebSocket connected, but no valid agent activity received in the last 60 seconds",
       CONNECTING: "connecting to realtime channel…",
       RECONNECTING: "connection lost — retrying…",
       FALLBACK: "realtime unavailable — polling state.json"
     };
     txt.setAttribute("title", titles[status] || status);
+  }
+
+  function checkFreshness() {
+    if (wsStatus !== "LIVE" && wsStatus !== "STALE") return;
+    // Start the timer when the socket opens; this also handles a session that
+    // connects successfully but never receives any activity event.
+    var baseline = lastEventTs || wsOpenedAt;
+    if (!baseline) return;
+    var isStale = Date.now() - baseline > FRESHNESS_MS;
+    if (isStale && wsStatus === "LIVE") setConn("STALE");
+    else if (!isStale && wsStatus === "STALE") setConn("LIVE");
   }
 
   /* Validate + dedup a realtime envelope, then apply its state.
@@ -1552,6 +1571,16 @@
     // tool move the spider even if one ever arrived
     var isSystem = tool === "db" || tool === "muse.db";
 
+    // Only validated live agent events refresh freshness. Replay history and
+    // bridge/system observer pulses must not make an idle stream look active.
+    var isActivityType = et === "TOOL_STARTED" || et === "TOOL_COMPLETED" ||
+      et === "TOOL_FAILED" || et === "TASK_STARTED" ||
+      et === "TASK_COMPLETED" || et === "TASK_FAILED";
+    if (!isReplay && !isSystem && isActivityType) {
+      lastEventTs = Date.now();
+      if (wsStatus === "STALE" && ws && ws.readyState === 1) setConn("LIVE");
+    }
+
     if (et === "TOOL_STARTED") {
       if (isSystem) return true;
       // every valid TOOL_STARTED enters the visual FIFO; nothing is dropped
@@ -1684,11 +1713,14 @@
       if (ws !== socket) return; // stale socket
       wsFails = 0;
       wsRetryMs = 2000; // reset backoff on success
+      wsOpenedAt = Date.now();
+      lastEventTs = 0;
       setConn("LIVE");
     };
     socket.onmessage = function (ev) {
       if (ws !== socket) return;
-      if (wsStatus !== "LIVE") setConn("LIVE"); // correct a desynced indicator
+      // Transport messages (including replay/heartbeat) do not prove fresh
+      // agent activity; handleActionEvent updates freshness only for valid events.
       dispatchRealtimeMessage(ev.data);
     };
     var onDown = function () {
@@ -1707,12 +1739,13 @@
       if (wsStatus === "LIVE") onWsDown();
       return;
     }
-    if (ws.readyState === 1 && wsStatus !== "LIVE") setConn("LIVE");
-    else if (ws.readyState === 0 && (wsStatus === "LIVE" || wsStatus === "FALLBACK")) {
+    if (ws.readyState === 1 && wsStatus !== "LIVE" && wsStatus !== "STALE") setConn("LIVE");
+    else if (ws.readyState === 0 && (wsStatus === "LIVE" || wsStatus === "STALE" || wsStatus === "FALLBACK")) {
       setConn(wsFails > 0 ? "RECONNECTING" : "CONNECTING");
-    } else if (ws.readyState >= 2 && wsStatus === "LIVE") {
+    } else if (ws.readyState >= 2 && (wsStatus === "LIVE" || wsStatus === "STALE")) {
       onWsDown();
     }
+    checkFreshness();
   }, 5000);
 
   // expose for tests (node --check friendly, no-ops in browser)
