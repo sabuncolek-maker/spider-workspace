@@ -44,8 +44,11 @@ function curve(a,b,c,d,e,f,g,h){ctx.beginPath();ctx.moveTo(a,b);ctx.bezierCurveT
 // Cubic ease-in-out (PR #29 locomotion)
 function easeInOut(p){return p<.5?4*p*p*p:1-Math.pow(-2*p+2,3)/2;}
 function drawSpider(){const dx=spider.tx-spider.x,dy=spider.ty-spider.y,dist=Math.hypot(dx,dy),angle=Math.atan2(dy,dx);if(locomotionPending&&!bodyPull){const activeReach=tentacles.filter(l=>l.state==="reaching"||l.state==="extending"||l.state==="anchoring").length;if(activeReach<3){const li=tentacles.findIndex(l=>l.state==="anchored"&&l.wait<=0);if(li>=0){const limb=tentacles[li];limb.angle=(li%3-1)*.35;limb.targetReach=Math.min(90,Math.max(15,dist/2));limb.state="reaching";limb.progress=0;}}}if(bodyPull){spider.moveP=Math.min(1,(spider.moveP||0)+(reduced?.08:.025));const e=easeInOut(spider.moveP);spider.x=spider.sx+(spider.tx-spider.sx)*e;spider.y=spider.sy+(spider.ty-spider.sy)*e;if(spider.moveP>=1){spider.x=spider.tx;spider.y=spider.ty;bodyPull=false;locomotionPending=false;spider.moveP=0;trails.push({x:spider.x,y:spider.y,x2:spider.x+Math.cos(angle)*10,y2:spider.y+Math.sin(angle)*10,life:1,color:sections[sectionIndex].color});tentacles.forEach((l,i)=>{if(l.state==="supporting"){l.state="releasing";l.progress=0;}else{l.state="anchored";l.progress=1;}l.wait=.15+(i%4)*.15;});}}tentacles.forEach(l=>{l.wait=Math.max(0,l.wait-.016);const spd=reduced?.25:.09;switch(l.state){case "reaching":l.progress=Math.min(1,l.progress+spd);if(l.progress>=1){l.state="extending";l.progress=0;}break;case "extending":l.progress=Math.min(1,l.progress+spd*.8);if(l.progress>=1){l.state="anchoring";l.progress=0;}break;case "anchoring":l.progress=Math.min(1,l.progress+spd*1.2);if(l.progress>=1){l.state="supporting";l.progress=0;if(!bodyPull&&locomotionPending){bodyPull=true;spider.moveP=0;spider.sx=spider.x;spider.sy=spider.y;}}break;case "releasing":l.progress=Math.min(1,l.progress+spd*1.5);if(l.progress>=1){l.state="retracting";l.progress=0;}break;case "retracting":l.progress=Math.min(1,l.progress+spd);if(l.progress>=1){l.state="anchored";l.progress=1;}break;}});ctx.save();ctx.translate(spider.x,spider.y);ctx.rotate(angle);ctx.scale(2.5,2.5);ctx.lineCap="round";const stepping=bodyPull?1:.3;for(let side of [-1,1])for(let i=0;i<8;i++){const rootX=side*5,rootY=(i-3.5)*2.1,reach=16+(i%3)*2.2,stride=Math.sin(t*7+i*1.7+side)*3*stepping,kneeX=side*(11+reach*.42),kneeY=rootY+stride,tipX=side*(21+reach)+stride*.25,tipY=rootY*2.5+Math.sin(t*5+i)*2;ctx.strokeStyle=i%3===0?"#ff64d8":"#35e0ff";ctx.lineWidth=1.05;curve(rootX,rootY,kneeX*.45,rootY-4,kneeX,kneeY,tipX,tipY);ctx.fillStyle="#c8f6ff";ctx.beginPath();ctx.arc(tipX,tipY,1.2,0,Math.PI*2);ctx.fill();}tentacles.forEach((l,i)=>{
-// Seek visible blinking codes: legs get pulled, body stays still
+// Distribute tentacles by angle: each goes to visible code nearest its direction
+// (not nearest by distance — that causes pile-up on one code)
+const baseRadial=l.angle+Math.sin(t*1.8+l.phase)*.08;
 let seekAngle=null,seekDist=0;
+const normA=a=>{while(a>Math.PI)a-=Math.PI*2;while(a<-Math.PI)a+=Math.PI*2;return a;};
 for(let si=0;si<sections.length;si++){
   const s=sections[si];
   for(let wj=0;wj<s.words.length;wj++){
@@ -54,14 +57,34 @@ for(let si=0;si<sections.length;si++){
     const wp=wordPoint(s,wj);
     const dx=(wp.x-spider.x)/2.5, dy=(wp.y-spider.y)/2.5;
     const d=Math.hypot(dx,dy);
-    if(d<90&&(seekAngle===null||d<seekDist)){seekAngle=Math.atan2(dy,dx);seekDist=d;}
+    if(d>110) continue;
+    const codeAngle=Math.atan2(dy,dx);
+    const angleDiff=Math.abs(normA(codeAngle-baseRadial));
+    // Score: prefer small angle diff, penalize distance slightly
+    const score=angleDiff+d/400;
+    if(seekAngle===null||score<seekDist){seekAngle=codeAngle;seekDist=score;}
   }
 }
-const baseRadial=l.angle+Math.sin(t*1.8+l.phase)*.08;
 const radial=seekAngle!==null?seekAngle:baseRadial;
 const rootX=Math.cos(radial)*5,rootY=Math.sin(radial)*4,reach=18+(i%4)*3;
-// When seeking, extend to code distance (snap and stick)
-if(seekAngle!==null){l.targetReach=Math.min(seekDist,85);l.state="extending";l.progress=Math.min(1,(l.progress||0)+.15);}
+// When seeking, extend toward the code (snap and stick)
+if(seekAngle!==null){
+  // Recompute actual distance to the targeted code
+  let trueD=40;
+  outer: for(let si=0;si<sections.length;si++){
+    const s=sections[si];
+    for(let wj=0;wj<s.words.length;wj++){
+      const cb2=codeBlink[si+"_"+wj];
+      if(!cb2||!cb2.visible) continue;
+      const wp2=wordPoint(s,wj);
+      const ddx=(wp2.x-spider.x)/2.5, ddy=(wp2.y-spider.y)/2.5;
+      const ca=Math.atan2(ddy,ddx);
+      let diff=ca-seekAngle; while(diff>Math.PI)diff-=Math.PI*2; while(diff<-Math.PI)diff+=Math.PI*2;
+      if(Math.abs(diff)<.15){trueD=Math.hypot(ddx,ddy);break outer;}
+    }
+  }
+  l.targetReach=Math.min(trueD,85);l.state="extending";l.progress=Math.min(1,(l.progress||0)+.15);
+}
 const _r=radial;let extension=reach,alpha=.86,lw=.72;switch(l.state){case "reaching":extension=reach+(l.targetReach-reach)*easeInOut(l.progress);alpha=1;lw=1.1;break;case "extending":extension=l.targetReach+(reach+11-l.targetReach)*l.progress*.3;alpha=1;lw=1.2;break;case "anchoring":extension=l.targetReach;alpha=1;lw=1.3;break;case "supporting":extension=l.targetReach;alpha=.95;lw=1.1;break;case "releasing":extension=l.targetReach*(1-l.progress*.4);alpha=.7;lw=.9;break;case "retracting":extension=reach+(l.targetReach*.6-reach)*(1-l.progress);alpha=.6;lw=.7;break;}const tx=Math.cos(radial)*extension,ty=Math.sin(radial)*extension,cx1=(rootX+tx)*.35-Math.sin(radial)*5,cy1=(rootY+ty)*.35+Math.cos(radial)*5,cx2=(rootX+tx)*.7-Math.sin(radial)*3,cy2=(rootY+ty)*.7+Math.cos(radial)*3;const isActive=l.state!=="anchored";ctx.strokeStyle=isActive?"#ffffff":i%2?`rgba(255,100,216,${alpha})`:`rgba(53,224,255,${alpha})`;ctx.lineWidth=lw;ctx.beginPath();ctx.moveTo(rootX,rootY);ctx.bezierCurveTo(cx1,cy1,cx2,cy2,tx,ty);ctx.stroke();ctx.fillStyle=isActive?"#ffffff":"#d9faff";ctx.beginPath();ctx.arc(tx,ty,isActive?1.5:.9,0,Math.PI*2);ctx.fill();});const pulse=1+Math.sin(t*9)*.12;ctx.save();ctx.shadowColor="#ff64d8";ctx.shadowBlur=22*pulse;ctx.fillStyle="#06121b";ctx.strokeStyle="#35e0ff";ctx.lineWidth=1.5;ctx.beginPath();ctx.ellipse(-5,0,6,5,0,0,Math.PI*2);ctx.fill();ctx.stroke();ctx.beginPath();ctx.ellipse(5,0,4.5,4,0,0,Math.PI*2);ctx.fill();ctx.stroke();ctx.restore();ctx.fillStyle="#ff64d8";ctx.beginPath();ctx.arc(6,-1.5,1.4,0,Math.PI*2);ctx.arc(6,1.5,1.4,0,Math.PI*2);ctx.fill();ctx.restore();}
 function frame(){t+=.016;updateCodeBlink();drawBackground();cameraX+=(spider.x-W*.5-cameraX)*.08;cameraY+=(spider.y-H*.5-cameraY)*.08;ctx.save();ctx.translate(-cameraX,-cameraY);sections.forEach(drawCluster);drawTrails();drawSpider();ctx.restore();requestAnimationFrame(frame);}
 function drawTrails(){for(let i=trails.length-1;i>=0;i--){const p=trails[i];p.life-=.012;if(p.life<=0){trails.splice(i,1);continue;}ctx.globalAlpha=Math.max(0,p.life)*.45;ctx.strokeStyle=p.color;ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(p.x,p.y);ctx.lineTo(p.x2,p.y2);ctx.stroke();}ctx.globalAlpha=1;}
