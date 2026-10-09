@@ -214,7 +214,12 @@ function pumpQueue() {
 function handleMessage(msg) {
   if (!msg || typeof msg !== "object") return false;
   var eid = msg.event_id;
-  if (eid) { if (seenEvents[eid]) return true; seenEvents[eid] = 1; }
+  if (eid) {
+    if (seenEvents[eid]) return true;
+    seenEvents[eid] = 1;
+    var keys = Object.keys(seenEvents);
+    if (keys.length > 500) delete seenEvents[keys[0]];
+  }
   var et = msg.event_type;
   var tool = msg.tool;
   var ts = msg.timestamp || Date.now();
@@ -245,7 +250,8 @@ function handleMessage(msg) {
   if (et === "TASK_STARTED" || et === "TASK_COMPLETED") {
     var tn = et === "TASK_STARTED" ? "TASK" : "COMPLETE";
     visualQueue.push({ node: tn, tool: tool || "task", ts: ts });
-    addFeed(fmtTime(ts), tn + " · " + (msg.task || "task"), ok ? "succ" : "");
+    addFeed(fmtTime(ts), tn + " · " + (msg.task || "task"),
+            et === "TASK_COMPLETED" ? "succ" : "");
     setRo("roTask", esc(msg.task || "—"));
     pumpQueue();
     return true;
@@ -255,6 +261,7 @@ function handleMessage(msg) {
 
 /* ---------- State.json fallback poll ---------- */
 var lastStateTs = 0;
+var wsLive = false;
 function pollState() {
   fetch(STATE_URL, { cache: "no-store" })
     .then(function (r) { return r.ok ? r.json() : null; })
@@ -263,8 +270,9 @@ function pollState() {
       var ts = st.timestamp || st.updated_at || 0;
       if (ts <= lastStateTs) return;
       lastStateTs = ts;
-      // derive node from latest tool
+      // derive node from latest tool (only when WS is not live, to avoid double-fire)
       var tool = (st.latest_tool || st.tool || "");
+      if (wsLive) tool = "";
       if (tool && tool !== "db" && tool !== "muse.db") {
         var node = toolToNode(tool);
         visualQueue.push({ node: node, tool: tool, ts: ts });
@@ -300,13 +308,13 @@ var wsFailed = 0;
 
 function setConn(state, text) {
   connDot.className = state;
-  connDot.id = "connDot";
   connText.textContent = text;
 }
 function connect() {
   try { socket = new WebSocket(WS_URL); } catch (e) { scheduleReconnect(); return; }
   socket.onopen = function () {
     wsFailed = 0;
+    wsLive = true;
     setConn("live", "LIVE · WebSocket");
   };
   socket.onmessage = function (ev) {
@@ -319,6 +327,7 @@ function connect() {
   };
 }
 function scheduleReconnect() {
+  wsLive = false;
   wsFailed++;
   setConn(wsFailed > 2 ? "dead" : "", wsFailed > 2 ? "FALLBACK · polling state.json" : "reconnecting…");
   setTimeout(connect, Math.min(5000 * wsFailed, 30000));

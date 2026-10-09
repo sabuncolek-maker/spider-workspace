@@ -42,7 +42,12 @@ body {
 }
 
 /* ---------- Pulsar ---------- */
-#pulsar { transform: translate(600px, 400px); }
+#spacePhoto {
+  position: absolute; inset: 0;
+  background-image: url("assets/space-bg.jpg");
+  background-size: cover; background-position: center;
+  opacity: 0.85;
+}
 .halo-pulse {
   transform-box: fill-box; transform-origin: center;
   animation: haloPulse 4s ease-in-out infinite;
