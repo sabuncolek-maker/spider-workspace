@@ -120,15 +120,14 @@
       font-family: monospace;
       font-size: 10px;
       height: 90px;
-      overflow-y: auto;
-      overflow-x: hidden;
-      display: flex;
-      flex-direction: column;
-      justify-content: flex-start;
-      gap: 3px;
+      overflow: hidden;
+      line-height: 1.6;
     }
-    .log-stream .log-item:first-child {
-      order: -1;
+    .log-item {
+      display: block;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
     .log-item {
       color: #8da4b8;
@@ -612,15 +611,17 @@
         ws.onclose = (e) => {
           wsFailCount++;
           const statusEl = document.getElementById('conn-status');
-          if (wsFailCount >= 3) {
+          if (wsFailCount === 3) {
             statusEl.textContent = '● POLL MODE';
             statusEl.style.color = '#ffaa00';
-            addLog(`WS failed ${wsFailCount}x (code ${e.code}) — using poll fallback`, true);
-          } else {
+            addLog(`WS unavailable (code ${e.code}) — poll fallback active`, true);
+          } else if (wsFailCount < 3) {
             statusEl.textContent = '● RECONNECTING';
             statusEl.style.color = '#ffaa00';
           }
-          setTimeout(connectWS, 5000);
+          // Backoff: longer wait after many fails (mobile-friendly)
+          const waitMs = Math.min(30000, 5000 * wsFailCount);
+          setTimeout(connectWS, waitMs);
         };
       } catch (_) { setTimeout(connectWS, 5000); }
     }
