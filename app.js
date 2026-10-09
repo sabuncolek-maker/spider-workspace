@@ -60,7 +60,6 @@
   if (window.addEventListener) window.addEventListener("resize", fitView);
 
   /* ---------- build web + nodes ---------- */
-  var threadsG = document.getElementById("threads");
   var nodesG = document.getElementById("nodes");
   var nodeEls = {};
 
@@ -220,9 +219,6 @@
     var d = Math.abs(ia - ib);
     return d === 1 || d === RING_ORDER.length - 1;
   }
-
-  // visible spiral (very subtle): the web's capture spiral through the ring
-  el("circle", { cx: CX, cy: CY, r: R, "class": "spiral" }, threadsG);
 
   // invisible route paths (getPointAtLength-ready). visibility:hidden keeps
   // getPointAtLength working in all browsers (unlike display:none).
