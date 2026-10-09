@@ -102,3 +102,17 @@ curl -s http://127.0.0.1:8077/state.json | python3 -m json.tool | head -20
 - Return-to-home camera motion uses the same frame-rate-independent smoothing.
 
 **Runtime limitation:** live browser rendering and `node --check` could not be executed from this environment during this pass. The repository's prior runtime tests remain documented above. Visual validation must be done on the deployed page, especially Android portrait/landscape.
+
+
+## TEST 9 — Aduok Motion Adaptation Audit / 2026-10-09
+**PASS — static integration audit.**
+- Preserved the existing state-driven route graph, WebSocket/polling flow, node mapping, HUB routing, IK, gait, reduced-motion path and camera system.
+- Replaced the three rigid leg segment lines with SVG quadratic paths whose endpoints remain exact, so IK/world-locked foot positions are unchanged.
+- Added deterministic layered-sine wobble inspired by Aduok's spider: no random(), no free-running leg animation, and no new permanent rAF.
+- Organic leg curves are recomputed from the current IK pose, so the body can remain still while moving legs flex and then settle naturally.
+- Added rounded SVG joins and `vector-effect: non-scaling-stroke` for cleaner leg rendering during camera zoom.
+- Asset cache-buster advanced to `app.js?v=20261009-5`.
+
+**Source basis:** Aduok's 2026 spider implementation uses lazy target following, gradual anchor reach, and layered sine-noise legs; this adaptation uses the leg-wobble technique only, because SPIDER Workspace already has state-driven path locomotion and analytic IK. The source does not justify replacing the workspace's telemetry/routing architecture.
+
+**Runtime limitation:** this pass was audited statically through the repository connector. Live browser rendering and `node --check` were not available in this environment, so final visual validation remains required on the deployed page.
