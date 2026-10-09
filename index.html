@@ -1,10 +1,579 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#03050a"><title>SPIDER by Erlangga — Prompt Crawler</title><link rel="stylesheet" href="crawler.css?v=20261009b"></head><body class="crawler-mode">
-<header id="topbar"><div id="brand"><div class="brandGlyph">✳</div><div id="brandText"><span id="brandName">SPIDER</span><span id="brandBy">by Erlangga · PROMPT-CRAWLER</span></div><span id="agentStatus">CONNECTING</span></div><div id="statsbar"><div class="stat"><span class="num">1</span><span class="lbl">AGENT VIEW</span></div><div class="stat"><span class="num">16</span><span class="lbl">LEGS</span></div><div class="stat"><span class="num">22</span><span class="lbl">TENTACLES</span></div><div class="stat"><span class="num" id="wordsRead">0</span><span class="lbl">WORDS READ</span></div><div class="stat"><span class="num" id="linksCount">0</span><span class="lbl">LINKS</span></div><div class="stat"><span class="num" id="flagsCount">0</span><span class="lbl">FLAGS</span></div></div></header>
-<nav id="sectionTabs"><span class="active">role</span><span>objective</span><span>context</span><span>roles</span><span>rules</span><span>review</span><span>start</span><span>ship</span></nav>
-<main id="crawlWorkspace"><canvas id="crawlCanvas" aria-label="Animated articulated spider crawling between prompt sections"></canvas><div class="crawlHUD"><div class="hudTop"><span class="eyebrow">ACTIVE SECTION</span><strong id="activeTitle">ROLE / Define the agent</strong><span class="mono">studio.prompt</span></div><div class="hudBottom"><span>SPIDER // LIVE TRACE</span><span>FRAME <b id="frameNum">0000</b></span><button id="replayBtn">REPLAY ↻</button></div></div></main>
-<section id="bottomPanels"><article class="miniPanel"><h3>CRAWL LOG <span>● LIVE</span></h3><p id="crawlLog">Waiting for telemetry…</p><div class="logline">LIVE TELEMETRY <i>──────</i> anchor trace <i>────</i> camera follow</div></article><article class="miniPanel"><h3>SECTIONS</h3><div class="sectionList"><div class="sectionRow selected">01 ROLE</div><div class="sectionRow">02 OBJECTIVE</div><div class="sectionRow">03 CONTEXT</div><div class="sectionRow">04 ROLES</div><div class="sectionRow">05 RULES</div><div class="sectionRow">06 REVIEW</div><div class="sectionRow">07 START</div><div class="sectionRow">08 SHIP</div></div></article><article class="miniPanel radar"><h3>NETWORK</h3><div class="radarRing"><b></b><i></i><em></em></div><p>active section <strong id="sectionCount">—</strong>/8</p><p>nodes <b id="nodesCount">0</b> · links <b id="networkLinks">0</b></p></article><article class="miniPanel"><h3>HEATMAP</h3><p>attention density</p><div class="heatTrack"><span id="heatFill"></span></div><div class="heatLegend"><span>LOW</span><span>HIGH</span></div><p>words/sec <b id="wordsPerSec">—</b></p></article><article class="miniPanel scorePanel"><h3>SPEC SCORE</h3><div class="score"><strong id="scoreNum">—</strong><span>quality index</span></div><div class="sparkline">▁▃▂▅▄▆▅▇▆█</div><p>flags to ask · <b id="flagsBottom">0</b></p></article><article class="miniPanel codePanel"><h3>CRAWLER.PY <span>LIVE TRACE</span></h3><pre><b>def</b> crawl(section):
-  tip = <i>extend_to</i>(section)
-  anchor(tip)
-  body.follow(tip)
-  verify_links()
-  <em>yield</em> result</pre></article></section><script src="prompt-crawler.js?v=20261009b"></script></body></html>
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PROMPT CRAWLER — Autonomous Agent Telemetry</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      user-select: none;
+    }
+    body {
+      background-color: #040508;
+      color: #9ab3c7;
+      font-family: 'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', monospace;
+      overflow: hidden;
+      width: 100vw;
+      height: 100vh;
+    }
+    #viewport {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 1;
+    }
+    .hud-top {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      padding: 16px 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      z-index: 10;
+      pointer-events: none;
+      background: linear-gradient(180deg, rgba(4,5,8,0.85) 0%, rgba(4,5,8,0) 100%);
+    }
+    .hud-title-block {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .hud-sys-tag {
+      font-size: 10px;
+      letter-spacing: 2px;
+      color: #557086;
+      font-weight: 700;
+    }
+    .hud-main-title {
+      font-size: 26px;
+      font-weight: 800;
+      letter-spacing: 4px;
+      color: #ffffff;
+      text-transform: uppercase;
+      text-shadow: 0 0 15px rgba(255,255,255,0.3);
+    }
+    .hud-stepper {
+      display: flex;
+      gap: 6px;
+      background: rgba(10, 16, 24, 0.7);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 4px;
+      padding: 4px;
+      pointer-events: auto;
+    }
+    .step-node {
+      font-size: 10px;
+      font-weight: 700;
+      padding: 6px 12px;
+      letter-spacing: 1px;
+      color: #647d92;
+      border-radius: 2px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+    .step-node.active {
+      background: #00ffd5;
+      color: #04090d;
+      box-shadow: 0 0 10px rgba(0, 255, 213, 0.4);
+    }
+    .hud-bottom {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      width: 100%;
+      padding: 16px 24px;
+      display: grid;
+      grid-template-columns: 280px 1fr 340px;
+      gap: 16px;
+      z-index: 10;
+      pointer-events: none;
+      background: linear-gradient(0deg, rgba(4,5,8,0.92) 0%, rgba(4,5,8,0) 100%);
+    }
+    .hud-card {
+      background: rgba(8, 14, 22, 0.75);
+      border: 1px solid rgba(75, 120, 150, 0.2);
+      backdrop-filter: blur(8px);
+      border-radius: 4px;
+      padding: 12px;
+      pointer-events: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .hud-card-header {
+      font-size: 10px;
+      letter-spacing: 1.5px;
+      color: #5d7e97;
+      border-bottom: 1px solid rgba(255,255,255,0.05);
+      padding-bottom: 4px;
+      display: flex;
+      justify-content: space-between;
+    }
+    .log-stream {
+      font-family: monospace;
+      font-size: 10px;
+      height: 90px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column-reverse;
+      gap: 3px;
+    }
+    .log-item {
+      color: #8da4b8;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+      overflow: hidden;
+    }
+    .log-item span.highlight {
+      color: #ff3377;
+      font-weight: bold;
+    }
+    .metric-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 11px;
+    }
+    .bar-bg {
+      flex: 1;
+      height: 4px;
+      background: rgba(255,255,255,0.08);
+      margin: 0 10px;
+      border-radius: 2px;
+      overflow: hidden;
+    }
+    .bar-fill {
+      height: 100%;
+      background: #00ffd5;
+      width: 50%;
+      transition: width 0.3s;
+    }
+    .circular-gauge {
+      width: 70px;
+      height: 70px;
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .circular-gauge canvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+    }
+    .gauge-val {
+      font-size: 14px;
+      font-weight: 800;
+      color: #fff;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="viewport"></canvas>
+  <header class="hud-top">
+    <div class="hud-title-block">
+      <div class="hud-sys-tag">PROMPT CRAWLER // NEURAL TRACE v2.0</div>
+      <div id="active-step-title" class="hud-main-title">01 ROLE</div>
+    </div>
+    <div class="hud-stepper" id="stepper"></div>
+  </header>
+  <footer class="hud-bottom">
+    <div class="hud-card">
+      <div class="hud-card-header">
+        <span>CRAWL LOG [LIVE STREAM]</span>
+        <span id="latency-val">12ms</span>
+      </div>
+      <div class="log-stream" id="log-stream"></div>
+    </div>
+    <div class="hud-card" style="display: flex; flex-direction: row; align-items: center; justify-content: space-around;">
+      <div style="width: 110px; height: 90px;">
+        <canvas id="radar-canvas" width="110" height="90"></canvas>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 6px; width: 140px;">
+        <div class="metric-row">
+          <span>DENSITY</span>
+          <div class="bar-bg"><div class="bar-fill" id="bar-density" style="width: 65%;"></div></div>
+        </div>
+        <div class="metric-row">
+          <span>ENTROPY</span>
+          <div class="bar-bg"><div class="bar-fill" id="bar-entropy" style="width: 42%; background: #ffaa00;"></div></div>
+        </div>
+        <div class="metric-row">
+          <span>COHESION</span>
+          <div class="bar-bg"><div class="bar-fill" id="bar-cohesion" style="width: 88%; background: #ff3377;"></div></div>
+        </div>
+      </div>
+      <div class="circular-gauge">
+        <canvas id="gauge-canvas" width="70" height="70"></canvas>
+        <span class="gauge-val" id="gauge-text">38%</span>
+      </div>
+    </div>
+    <div class="hud-card">
+      <div class="hud-card-header">
+        <span>BRIDGE & DISPATCH</span>
+        <span id="conn-status" style="color: #00ffd5;">● WS SYNC</span>
+      </div>
+      <div style="font-size: 11px; display: flex; flex-direction: column; gap: 4px; padding-top: 4px;">
+        <div style="display: flex; justify-content: space-between;">
+          <span>Words Scanned:</span>
+          <strong id="counter-words" style="color: #fff;">0/m</strong>
+        </div>
+        <div style="display: flex; justify-content: space-between;">
+          <span>Tokens Indexed:</span>
+          <strong id="counter-tokens" style="color: #fff;">0</strong>
+        </div>
+        <div style="display: flex; justify-content: space-between;">
+          <span>Next State Poll:</span>
+          <strong id="poll-timer" style="color: #5d7e97;">7.0s</strong>
+        </div>
+      </div>
+    </div>
+  </footer>
+  <script>
+    const CLUSTERS = [
+      { id: "01 ROLE", name: "ROLE", x: -600, y: -250, color: "#00ffd5", count: 120, words: ["system", "persona", "expert", "specialist", "agent", "analyst", "identity", "context"] },
+      { id: "02 OBJECTIVE", name: "OBJECTIVE", x: 0, y: -450, color: "#00b4d8", count: 150, words: ["target", "mission", "goal", "execute", "synthesize", "extract", "generate"] },
+      { id: "03 CONTEXT", name: "CONTEXT", x: 650, y: -200, color: "#ff3377", count: 180, words: ["reference", "history", "schema", "dataset", "temporal", "domain", "scope"] },
+      { id: "04 ROLES", name: "ROLES", x: 750, y: 300, color: "#ffaa00", count: 160, words: ["subagent", "delegator", "observer", "critic", "verifier", "worker"] },
+      { id: "05 RULES", name: "RULES", x: 100, y: 450, color: "#00ff88", count: 200, words: ["constraint", "deterministic", "sanitization", "strict", "guardrail", "policy"] },
+      { id: "06 REVIEW", name: "REVIEW", x: -550, y: 350, color: "#b5179e", count: 140, words: ["audit", "inspect", "validate", "cross-check", "score", "refine"] },
+      { id: "07 START", name: "START", x: 0, y: 0, color: "#ffffff", count: 90, words: ["init", "payload", "trigger", "handshake", "prompt", "begin"] }
+    ];
+    let activeClusterIndex = 0;
+    let tokens = [];
+    let wordsScanned = 0;
+    let tokensIndexed = 0;
+    let lastEventAt = 0;
+    function seededRand(seed) {
+      let s = seed;
+      return () => { s = (s * 16807) % 2147483647; return (s - 1) / 2147483646; };
+    }
+    const rand = seededRand(42);
+    CLUSTERS.forEach((cluster, ci) => {
+      for (let i = 0; i < cluster.count; i++) {
+        const angle = rand() * Math.PI * 2;
+        const radius = Math.pow(rand(), 0.7) * 220;
+        const wx = cluster.x + Math.cos(angle) * radius;
+        const wy = cluster.y + Math.sin(angle) * radius;
+        tokens.push({
+          x: wx, y: wy, origX: wx, origY: wy,
+          size: rand() * 2 + 0.8,
+          alpha: rand() * 0.7 + 0.3,
+          cluster: cluster.name, clusterIndex: ci,
+          word: cluster.words[Math.floor(rand() * cluster.words.length)],
+          color: cluster.color, locked: false, seed: ci * 1000 + i
+        });
+      }
+    });
+    const crawler = { x: 0, y: 0, targetX: 0, targetY: 0, pulse: 0, tentacles: [] };
+    for (let i = 0; i < 16; i++) {
+      crawler.tentacles.push({
+        angle: (i / 16) * Math.PI * 2,
+        length: 80 + (seededRand(i + 1)() * 60),
+        tipX: 0, tipY: 0, targetNode: null, tag: null, retargetCooldown: 0
+      });
+    }
+    const camera = { x: 0, y: 0, zoom: 1, targetZoom: 1 };
+    const canvas = document.getElementById('viewport');
+    const ctx = canvas.getContext('2d');
+    function resize() {
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+    }
+    window.addEventListener('resize', resize);
+    resize();
+    function mapEventToCluster(event) {
+      const tool = (event.tool || "").toLowerCase();
+      const type = (event.type || "").toLowerCase();
+      if (tool.includes("exec") || tool.includes("read") || type.includes("read")) return 5;
+      if (tool.includes("search") || tool.includes("browser")) return 2;
+      if (tool.includes("write") || tool.includes("edit")) return 1;
+      if (tool.includes("subagent") || tool.includes("spawn")) return 3;
+      if (type.includes("start") || type.includes("init")) return 6;
+      return activeClusterIndex;
+    }
+    function render() {
+      ctx.fillStyle = '#040508';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      camera.x += (crawler.x - camera.x) * 0.05;
+      camera.y += (crawler.y - camera.y) * 0.05;
+      camera.zoom += (camera.targetZoom - camera.zoom) * 0.05;
+      const activeClust = CLUSTERS[activeClusterIndex];
+      crawler.targetX = activeClust.x;
+      crawler.targetY = activeClust.y;
+      crawler.x += (crawler.targetX - crawler.x) * 0.04;
+      crawler.y += (crawler.targetY - crawler.y) * 0.04;
+      crawler.pulse += 0.05;
+      ctx.save();
+      ctx.translate(canvas.width / 2, canvas.height / 2);
+      ctx.scale(camera.zoom, camera.zoom);
+      ctx.translate(-camera.x, -camera.y);
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.04)";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      for (let i = 0; i < CLUSTERS.length; i++) {
+        for (let j = i + 1; j < CLUSTERS.length; j++) {
+          ctx.moveTo(CLUSTERS[i].x, CLUSTERS[i].y);
+          ctx.lineTo(CLUSTERS[j].x, CLUSTERS[j].y);
+        }
+      }
+      ctx.stroke();
+      tokens.forEach(t => {
+        t.x = t.origX + Math.sin(crawler.pulse + t.origY * 0.01 + t.seed) * 2;
+        t.y = t.origY + Math.cos(crawler.pulse + t.origX * 0.01 + t.seed) * 2;
+        ctx.fillStyle = t.color;
+        ctx.globalAlpha = t.alpha * 0.6;
+        ctx.beginPath();
+        ctx.arc(t.x, t.y, t.size, 0, Math.PI * 2);
+        ctx.fill();
+        if (t.locked) {
+          ctx.font = '8px monospace';
+          ctx.fillStyle = t.color;
+          ctx.globalAlpha = 0.9;
+          ctx.fillText(t.word, t.x + 4, t.y + 3);
+        }
+      });
+      ctx.globalAlpha = 1;
+      CLUSTERS.forEach((cl, ci) => {
+        ctx.font = '700 18px monospace';
+        ctx.fillStyle = ci === activeClusterIndex ? 'rgba(255, 255, 255, 0.9)' : 'rgba(255, 255, 255, 0.35)';
+        ctx.textAlign = 'center';
+        ctx.fillText(cl.name.toLowerCase(), cl.x, cl.y - 70);
+      });
+      const nearbyTokens = tokens.filter(t => {
+        const d = Math.hypot(t.x - crawler.x, t.y - crawler.y);
+        return d < 220 && t.clusterIndex === activeClusterIndex;
+      });
+      crawler.tentacles.forEach((tent, idx) => {
+        tent.retargetCooldown--;
+        const hasFreshActivity = (Date.now() - lastEventAt) < 10000;
+        if (tent.retargetCooldown <= 0 && hasFreshActivity && nearbyTokens.length > 0) {
+          const pickIdx = Math.floor((crawler.pulse * 2 + idx * 7) % nearbyTokens.length);
+          if (tent.targetNode) tent.targetNode.locked = false;
+          tent.targetNode = nearbyTokens[pickIdx];
+          tent.targetNode.locked = true;
+          tent.tag = `[scan:${tent.targetNode.word}]`;
+          tent.retargetCooldown = 60 + (idx * 13) % 60;
+          wordsScanned++;
+          tokensIndexed++;
+          updateCounters();
+        } else if (!hasFreshActivity && tent.targetNode) {
+          tent.targetNode.locked = false;
+          tent.targetNode = null;
+          tent.tag = null;
+        }
+        const baseAngle = tent.angle + Math.sin(crawler.pulse * 0.5 + idx) * 0.2;
+        let destX = crawler.x + Math.cos(baseAngle) * tent.length;
+        let destY = crawler.y + Math.sin(baseAngle) * tent.length;
+        if (tent.targetNode) {
+          destX = tent.targetNode.x;
+          destY = tent.targetNode.y;
+        }
+        const midX = (crawler.x + destX) / 2 + Math.sin(crawler.pulse + idx) * 25;
+        const midY = (crawler.y + destY) / 2 + Math.cos(crawler.pulse + idx) * 25;
+        ctx.strokeStyle = (idx % 2 === 0) ? '#00ffd5' : '#ff3377';
+        ctx.lineWidth = 1.2;
+        ctx.globalAlpha = 0.75;
+        ctx.beginPath();
+        ctx.moveTo(crawler.x, crawler.y);
+        ctx.quadraticCurveTo(midX, midY, destX, destY);
+        ctx.stroke();
+        if (tent.targetNode && idx % 3 === 0) {
+          ctx.strokeStyle = '#ff3377';
+          ctx.fillStyle = 'rgba(255, 51, 119, 0.15)';
+          ctx.lineWidth = 1;
+          const tagW = 75;
+          const tagH = 14;
+          ctx.globalAlpha = 1;
+          ctx.fillRect(destX + 5, destY - 8, tagW, tagH);
+          ctx.strokeRect(destX + 5, destY - 8, tagW, tagH);
+          ctx.font = '8px monospace';
+          ctx.fillStyle = '#ffffff';
+          ctx.globalAlpha = 0.9;
+          ctx.textAlign = 'left';
+          ctx.fillText(tent.tag, destX + 8, destY + 2);
+        }
+      });
+      ctx.globalAlpha = 1;
+      const coreRadius = 14 + Math.sin(crawler.pulse * 2) * 2;
+      const grad = ctx.createRadialGradient(crawler.x, crawler.y, 4, crawler.x, crawler.y, 45);
+      grad.addColorStop(0, 'rgba(0, 255, 213, 0.8)');
+      grad.addColorStop(0.5, 'rgba(255, 51, 119, 0.3)');
+      grad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.arc(crawler.x, crawler.y, 45, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.save();
+      ctx.translate(crawler.x, crawler.y);
+      ctx.rotate(crawler.pulse);
+      ctx.strokeStyle = '#00ffd5';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(0, 0, coreRadius + 6, 0, Math.PI * 1.5);
+      ctx.stroke();
+      ctx.restore();
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.arc(crawler.x, crawler.y, coreRadius, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+      requestAnimationFrame(render);
+    }
+    const stepperContainer = document.getElementById('stepper');
+    const activeStepTitle = document.getElementById('active-step-title');
+    const logStream = document.getElementById('log-stream');
+    CLUSTERS.forEach((c, idx) => {
+      const btn = document.createElement('div');
+      btn.className = `step-node ${idx === 0 ? 'active' : ''}`;
+      btn.innerText = c.name;
+      btn.onclick = () => switchCluster(idx, true);
+      stepperContainer.appendChild(btn);
+    });
+    function switchCluster(idx, manual = false) {
+      if (idx === activeClusterIndex && !manual) return;
+      activeClusterIndex = idx;
+      document.querySelectorAll('.step-node').forEach((el, i) => {
+        el.classList.toggle('active', i === idx);
+      });
+      activeStepTitle.innerText = CLUSTERS[idx].id;
+      addLog(`MIGRATING TO CLUSTER [${CLUSTERS[idx].name}]${manual ? ' (manual)' : ''}`, true);
+      updateMetrics();
+    }
+    function updateMetrics() {
+      const activity = Math.min(1, (Date.now() - lastEventAt) < 10000 ? 0.8 : 0.2);
+      document.getElementById('gauge-text').innerText = Math.floor(activity * 100) + '%';
+      document.getElementById('bar-density').style.width = Math.floor(40 + activity * 50) + '%';
+      document.getElementById('bar-entropy').style.width = Math.floor(20 + activity * 40) + '%';
+      document.getElementById('bar-cohesion').style.width = Math.floor(60 + activity * 30) + '%';
+    }
+    function updateCounters() {
+      document.getElementById('counter-words').innerText = wordsScanned + '/m';
+      document.getElementById('counter-tokens').innerText = tokensIndexed.toLocaleString();
+    }
+    function addLog(msg, isHighlight = false) {
+      const time = new Date().toISOString().substring(11, 19);
+      const row = document.createElement('div');
+      row.className = 'log-item';
+      row.innerHTML = `<span>${time}</span> ${isHighlight ? `<span class="highlight">${msg}</span>` : msg}`;
+      logStream.prepend(row);
+      if (logStream.children.length > 20) logStream.removeChild(logStream.lastChild);
+    }
+    function drawRadar() {
+      const rc = document.getElementById('radar-canvas').getContext('2d');
+      const w = 110, h = 90, cx = w/2, cy = h/2, r = 32;
+      rc.clearRect(0, 0, w, h);
+      rc.strokeStyle = 'rgba(255,255,255,0.15)';
+      rc.beginPath();
+      for (let i = 0; i < 6; i++) {
+        const ang = (i / 6) * Math.PI * 2;
+        rc.lineTo(cx + Math.cos(ang) * r, cy + Math.sin(ang) * r);
+      }
+      rc.closePath();
+      rc.stroke();
+      rc.fillStyle = 'rgba(0, 255, 213, 0.25)';
+      rc.strokeStyle = '#00ffd5';
+      rc.beginPath();
+      for (let i = 0; i < 6; i++) {
+        const ang = (i / 6) * Math.PI * 2;
+        const curR = r * (0.4 + Math.sin(Date.now() * 0.003 + i) * 0.35);
+        if (i === 0) rc.moveTo(cx + Math.cos(ang) * curR, cy + Math.sin(ang) * curR);
+        else rc.lineTo(cx + Math.cos(ang) * curR, cy + Math.sin(ang) * curR);
+      }
+      rc.closePath();
+      rc.fill();
+      rc.stroke();
+      requestAnimationFrame(drawRadar);
+    }
+    function drawGauge() {
+      const gc = document.getElementById('gauge-canvas').getContext('2d');
+      gc.clearRect(0, 0, 70, 70);
+      gc.strokeStyle = 'rgba(255,255,255,0.1)';
+      gc.lineWidth = 4;
+      gc.beginPath();
+      gc.arc(35, 35, 28, 0, Math.PI * 2);
+      gc.stroke();
+      gc.strokeStyle = '#ff3377';
+      gc.beginPath();
+      gc.arc(35, 35, 28, -Math.PI/2, Math.PI * 0.65);
+      gc.stroke();
+    }
+    let pollSeconds = 7.0;
+    function connectWS() {
+      const qs = new URLSearchParams(location.search);
+      const wsUrl = qs.get("ws") || "wss://spider-realtime-poc.sabuncolek1508.workers.dev/ws";
+      try {
+        const ws = new WebSocket(wsUrl);
+        ws.onopen = () => {
+          document.getElementById('conn-status').textContent = '● WS SYNC';
+          document.getElementById('conn-status').style.color = '#00ffd5';
+          addLog("WEBSOCKET CONNECTED", true);
+        };
+        ws.onmessage = (e) => {
+          try { handleRealEvent(JSON.parse(e.data)); } catch (_) {}
+        };
+        ws.onerror = () => {
+          document.getElementById('conn-status').textContent = '● WS ERROR';
+          document.getElementById('conn-status').style.color = '#ff3377';
+        };
+        ws.onclose = () => {
+          document.getElementById('conn-status').textContent = '● RECONNECTING';
+          document.getElementById('conn-status').style.color = '#ffaa00';
+          setTimeout(connectWS, 3000);
+        };
+      } catch (_) { setTimeout(connectWS, 5000); }
+    }
+    function handleRealEvent(event) {
+      lastEventAt = Date.now();
+      const clusterIdx = mapEventToCluster(event);
+      const toolName = event.tool || event.type || "unknown";
+      addLog(`EVENT [${toolName}] → ${CLUSTERS[clusterIdx].name}`);
+      if (clusterIdx !== activeClusterIndex) switchCluster(clusterIdx);
+      updateMetrics();
+    }
+    async function pollSnapshot() {
+      try {
+        const qs = new URLSearchParams(location.search);
+        const src = qs.get("src") || "state.json";
+        const r = await fetch(src + "?t=" + Date.now(), { cache: "no-store" });
+        if (!r.ok) throw Error();
+        const d = await r.json();
+        if (Date.now() - lastEventAt < 15000) return;
+        const step = String(d.execution?.current_step || d.workflow?.active_node || "").toUpperCase();
+        const tool = String(d.execution?.current_tool || "");
+        let idx = activeClusterIndex;
+        for (let i = 0; i < CLUSTERS.length; i++) {
+          if (step.includes(CLUSTERS[i].name)) { idx = i; break; }
+        }
+        if (idx !== activeClusterIndex) {
+          lastEventAt = Date.now() - 5000;
+          switchCluster(idx);
+          addLog(`SNAPSHOT → ${CLUSTERS[idx].name}`);
+        }
+      } catch (_) {}
+    }
+    setInterval(() => {
+      pollSeconds -= 0.1;
+      if (pollSeconds <= 0) {
+        pollSeconds = 7.0;
+        pollSnapshot();
+      }
+      document.getElementById('poll-timer').innerText = pollSeconds.toFixed(1) + 's';
+    }, 100);
+    render();
+    drawRadar();
+    drawGauge();
+    connectWS();
+    setInterval(pollSnapshot, 7000);
+    addLog("TELEMETRY ENGINE INITIALIZED — REAL DATA MODE");
+    updateMetrics();
+  </script>
+</body>
+</html>
