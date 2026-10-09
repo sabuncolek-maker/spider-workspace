@@ -1118,7 +1118,7 @@
     var hubRing = document.getElementById("hubRing");
     if (hubRing) hubRing.setAttribute("class", spiderNode === "IDLE" ? "lit" : "");
     if (spiderNode && nodeEls[spiderNode] && spiderNode !== "IDLE") {
-      nodeEls[spiderNode].setAttribute("class", "node active");
+      nodeEls[spiderNode].setAttribute("class", "node active hot"); // NEBULA: color glow
     }
     if ((wf.failed_nodes || []).length && nodeEls.ERROR) {
       nodeEls.ERROR.setAttribute("class", "node failed");
