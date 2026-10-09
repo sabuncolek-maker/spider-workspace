@@ -1086,8 +1086,7 @@
     spider.setAttribute("opacity", "1");
     if (from !== node) {
       ripple(p.x, p.y, node === "ERROR");
-      spider.setAttribute("class", "arrived");
-      setTimeout(function () { spider.setAttribute("class", ""); }, 1200);
+      spider.setAttribute("class", "moving"); // beautify: glow while travelling
       // Journey fits INSIDE the 1.2s queue slot with a 50ms safety margin
       // (1150ms), so the queue's advance timer never cancels a journey just
       // before completion. Single leg = 1150ms; via-hub = 550 + 100 + 500.
@@ -1095,6 +1094,9 @@
       travelLegs(from, node, VISUAL_MIN_MS - 50, function (completed) {
         w1c_returnHome(); // W1-C: ease back to normal framing
         if (completed) spiderNode = node;
+        // beautify: arrived pulse, then clear
+        spider.setAttribute("class", "arrived");
+        setTimeout(function () { spider.setAttribute("class", ""); }, 1200);
       });
     }
   }
