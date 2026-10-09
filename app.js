@@ -133,7 +133,7 @@
    * Visual only. Subtle pan + zoom following spider activity.
    * During journey: updated inside existing travelLegs frame() (no new rAF).
    * Idle return: bounded self-terminating rAF (stops when settled).
-   * No locomotion change. Respects prefers-reduced-motion. No Math.random(). */
+   * No locomotion change. Respects prefers-reduced-motion. */
   var w1c_returnRaf = 0;
   var w1c_lastT = 0;
   var W1C_PAN = 0.22; // quieter spatial pull; the world should move, not jump
@@ -203,8 +203,8 @@
 
   /* ---------- route graph (Design B, Phase 1) ----------
    * Pure, deterministic routing over the visible web. The spider's future
-   * travel paths: spokes (hub<->node, the lines already drawn) and spiral
-   * arcs (adjacent ring nodes, following the faint spiral circle).
+   * travel paths: hidden spokes (hub<->node) and hidden circular arcs
+   * (adjacent ring nodes). These geometries exist only for locomotion sampling.
    * Phase 1 is infrastructure only: routePath() is built and tested here,
    * and Phase 2 wires it to the rAF path-following driver below.
    * Nothing moves randomly; every leg lies on a visible web path. */
