@@ -601,3 +601,58 @@ g.node.dim.dashed .node-ring { stroke-dasharray: 4 5; }
 @keyframes pDriftMid  { 0% { transform: translate(0,0); } 100% { transform: translate(30px, -20px); } }
 @keyframes pDriftNear { 0% { transform: translate(0,0); } 100% { transform: translate(-40px, -26px); } }
 } /* end phase 3 */
+
+/* ================= NEBULA V2: bold energy entity ================= */
+@media (prefers-reduced-motion: no-preference) {
+
+/* Tendrils: long flowing energy arms */
+#tendrils .tendril {
+  transform-origin: 0 0;
+  animation: tendrilWave 5s ease-in-out infinite;
+}
+@keyframes tendrilWave {
+  0%, 100% { transform: rotate(-7deg) scale(1); }
+  50% { transform: rotate(7deg) scale(1.06); }
+}
+#tendrils .tendril-outer {
+  stroke: #35e0ff; stroke-width: 3.5; fill: none; stroke-linecap: round;
+  opacity: 0.35;
+  filter: drop-shadow(0 0 8px rgba(53,224,255,0.8));
+}
+#tendrils .tendril-inner {
+  stroke: #c8f6ff; stroke-width: 1.2; fill: none; stroke-linecap: round;
+  opacity: 0.9;
+  filter: drop-shadow(0 0 4px rgba(255,255,255,0.9));
+  stroke-dasharray: 10 8;
+  animation: tendrilFlowFast 0.8s linear infinite;
+}
+@keyframes tendrilFlowFast { to { stroke-dashoffset: -18; } }
+#tendrils .tendril-tip {
+  fill: #ffffff;
+  filter: drop-shadow(0 0 8px rgba(53,224,255,1));
+  animation: tipPulse 2s ease-in-out infinite;
+}
+@keyframes tipPulse { 0%,100% { opacity: 0.6; } 50% { opacity: 1; } }
+
+/* Aggressive core glow */
+#spider { filter: drop-shadow(0 0 24px rgba(53,224,255,0.55)); }
+#spider.moving { filter: drop-shadow(0 0 40px rgba(53,224,255,0.85)); }
+#spider.moving #tendrils .tendril { animation-duration: 2.2s; }
+#spider.arrived { animation: coreShock 1.4s ease-out; }
+@keyframes coreShock {
+  0% { filter: drop-shadow(0 0 60px rgba(53,224,255,1)); }
+  100% { filter: drop-shadow(0 0 24px rgba(53,224,255,0.55)); }
+}
+
+/* Node shockwave: full explosion on arrival */
+.ripple {
+  fill: none; stroke-width: 3;
+  transform-box: fill-box; transform-origin: center;
+  animation: shockwave 1.6s ease-out forwards;
+}
+@keyframes shockwave {
+  0% { opacity: 0.95; transform: scale(1); stroke-width: 4; }
+  100% { opacity: 0; transform: scale(3.2); stroke-width: 0.5; }
+}
+
+} /* end NEBULA V2 */

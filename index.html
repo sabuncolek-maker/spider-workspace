@@ -74,11 +74,21 @@
       <circle id="spiderHalo" r="34" fill="url(#halo)"/>
       <g id="spiderBody" stroke-linecap="round">
         <!-- NEBULA: energy core (legs built by JS into #legs, IK untouched) -->
-        <g id="legs"></g>
-        <circle r="17" fill="url(#coreOuter)" class="core-pulse"/>
-        <circle r="10.5" fill="url(#coreMid)" class="core-pulse"/>
-        <circle r="5.5" fill="url(#coreHot)"/>
-        <circle r="2.1" fill="#ffffff" class="core-white"/>
+        <g id="legs" opacity="0.18"></g>
+        <g id="tendrils">
+          <g class="tendril" style="animation-delay:0.00s"><path d="M 0 0 Q -15 -53 -54 -90" class="tendril-outer"/><path d="M 0 0 Q -15 -53 -54 -90" class="tendril-inner"/><circle cx="-54" cy="-90" r="2.5" class="tendril-tip"/></g>
+          <g class="tendril" style="animation-delay:0.35s"><path d="M 0 0 Q -59 -2 -109 -32" class="tendril-outer"/><path d="M 0 0 Q -59 -2 -109 -32" class="tendril-inner"/><circle cx="-109" cy="-32" r="2.5" class="tendril-tip"/></g>
+          <g class="tendril" style="animation-delay:0.70s"><path d="M 0 0 Q -63 4 -116 35" class="tendril-outer"/><path d="M 0 0 Q -63 4 -116 35" class="tendril-inner"/><circle cx="-116" cy="35" r="2.5" class="tendril-tip"/></g>
+          <g class="tendril" style="animation-delay:1.05s"><path d="M 0 0 Q -15 53 -54 90" class="tendril-outer"/><path d="M 0 0 Q -15 53 -54 90" class="tendril-inner"/><circle cx="-54" cy="90" r="2.5" class="tendril-tip"/></g>
+          <g class="tendril" style="animation-delay:1.40s"><path d="M 0 0 Q 47 -36 71 -88" class="tendril-outer"/><path d="M 0 0 Q 47 -36 71 -88" class="tendril-inner"/><circle cx="71" cy="-88" r="2.5" class="tendril-tip"/></g>
+          <g class="tendril" style="animation-delay:1.75s"><path d="M 0 0 Q 51 -38 111 -48" class="tendril-outer"/><path d="M 0 0 Q 51 -38 111 -48" class="tendril-inner"/><circle cx="111" cy="-48" r="2.5" class="tendril-tip"/></g>
+          <g class="tendril" style="animation-delay:2.10s"><path d="M 0 0 Q 43 35 96 43" class="tendril-outer"/><path d="M 0 0 Q 43 35 96 43" class="tendril-inner"/><circle cx="96" cy="43" r="2.5" class="tendril-tip"/></g>
+          <g class="tendril" style="animation-delay:2.45s"><path d="M 0 0 Q 47 36 71 88" class="tendril-outer"/><path d="M 0 0 Q 47 36 71 88" class="tendril-inner"/><circle cx="71" cy="88" r="2.5" class="tendril-tip"/></g>
+        </g>
+        <circle r="60" fill="url(#coreOuter)" class="core-pulse"/>
+        <circle r="38" fill="url(#coreMid)" class="core-pulse"/>
+        <circle r="20" fill="url(#coreHot)"/>
+        <circle r="8" fill="#ffffff" class="core-white"/>
       </g>
     </g>
   </svg>
