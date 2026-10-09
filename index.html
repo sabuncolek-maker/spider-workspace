@@ -625,12 +625,15 @@
       updateMetrics();
     }
     function extractKeywords(event) {
+      // Prefer keywords from bridge (real content hints from event sender)
+      if (Array.isArray(event.keywords) && event.keywords.length > 0) {
+        return event.keywords.slice(0, 4);
+      }
+      // Fallback: local extraction from metadata
       const words = [];
       const text = JSON.stringify(event).toLowerCase();
-      // Extract file names
       const files = text.match(/[a-z0-9_-]+\.(js|html|css|py|json|md)/g) || [];
       files.slice(0, 3).forEach(f => words.push(f.split('.')[0]));
-      // Extract tool action
       const tool = (event.tool || "").toLowerCase();
       if (tool) {
         const parts = tool.split('.');
