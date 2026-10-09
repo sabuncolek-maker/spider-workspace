@@ -656,3 +656,33 @@ g.node.dim.dashed .node-ring { stroke-dasharray: 4 5; }
 }
 
 } /* end NEBULA V2 */
+
+/* ================= NEBULA V3: jellyfish wave ================= */
+@media (prefers-reduced-motion: no-preference) {
+
+/* Nested segments: wave propagates base -> tip */
+#tendrils .tseg { transform-origin: 0 0; animation: segWave 3.2s ease-in-out infinite; }
+#tendrils .tseg1 { animation-duration: 3.2s; }
+#tendrils .tseg2 { animation-duration: 2.7s; }
+#tendrils .tseg3 { animation-duration: 2.2s; }
+@keyframes segWave {
+  0%, 100% { transform: rotate(-11deg); }
+  50% { transform: rotate(11deg); }
+}
+#tendrils .tendril-seg {
+  stroke: #35e0ff; stroke-width: 2.6; fill: none; stroke-linecap: round;
+  opacity: 0.55;
+  filter: drop-shadow(0 0 6px rgba(53,224,255,0.8));
+}
+#tendrils .tseg2 .tendril-seg { stroke-width: 2; opacity: 0.45; }
+#tendrils .tseg3 .tendril-seg { stroke-width: 1.4; opacity: 0.35; }
+#tendrils .tendril-tip {
+  fill: #ffffff; filter: drop-shadow(0 0 8px rgba(53,224,255,1));
+  animation: tipPulse 2s ease-in-out infinite;
+}
+
+/* Hide V2 rigid tendril styles */
+#tendrils .tendril { animation: none; }
+#tendrils .tendril-outer, #tendrils .tendril-inner { display: none; }
+
+} /* end NEBULA V3 */
