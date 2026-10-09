@@ -340,8 +340,120 @@ setInterval(function () {
   }
 }, 5000);
 
+/* ---------- Canvas tendrils (adopted wobbly-line technique) ---------- */
+var tCanvas = document.getElementById("tendrilCanvas");
+var tCtx = tCanvas.getContext("2d");
+var tendrils = [];
+var TENDRIL_COUNT = 10;
+
+function sizeTendrilCanvas() {
+  var dpr = window.devicePixelRatio || 1;
+  tCanvas.width = innerWidth * dpr;
+  tCanvas.height = innerHeight * dpr;
+  tCanvas.style.width = innerWidth + "px";
+  tCanvas.style.height = innerHeight + "px";
+  tCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+function svgToScreen(sx, sy) {
+  var scale = Math.min(innerWidth / 1200, innerHeight / 800);
+  var ox = (innerWidth - 1200 * scale) / 2;
+  var oy = (innerHeight - 800 * scale) / 2;
+  return { x: ox + sx * scale, y: oy + sy * scale };
+}
+function twobble(x, y, t) {
+  var a = Math.sin(0.3 * x + 1.4 * t + 2.0 + 2.5 * Math.sin(0.4 * y - 1.3 * t + 1.0));
+  var b = Math.sin(0.2 * y + 1.5 * t + 2.8 + 2.3 * Math.sin(0.5 * x - 1.2 * t + 0.5));
+  return a + b;
+}
+function initTendrils() {
+  tendrils = [];
+  for (var i = 0; i < TENDRIL_COUNT; i++) {
+    var base = (i / TENDRIL_COUNT) * Math.PI * 2;
+    tendrils.push({
+      baseAngle: base, angle: base,
+      targetAngle: base, length: 130, targetLength: 130,
+      phase: Math.random() * 10, width: 1.6 + Math.random() * 1.2
+    });
+  }
+}
+function aimTendrils(node) {
+  var p = POS[node];
+  if (!p) return;
+  var pc = svgToScreen(CX, CY);
+  var pn = svgToScreen(p.x, p.y);
+  var targetAng = Math.atan2(pn.y - pc.y, pn.x - pc.x);
+  var dist = Math.hypot(pn.x - pc.x, pn.y - pc.y);
+  var scored = tendrils.map(function (t) {
+    var d = Math.abs(targetAng - t.angle) % (Math.PI * 2);
+    if (d > Math.PI) d = Math.PI * 2 - d;
+    return { t: t, d: d };
+  });
+  scored.sort(function (a, b) { return a.d - b.d; });
+  tendrils.forEach(function (t) { t.targetAngle = t.baseAngle; t.targetLength = 130; });
+  for (var i = 0; i < 4 && i < scored.length; i++) {
+    scored[i].t.targetAngle = targetAng + (i - 1.5) * 0.12;
+    scored[i].t.targetLength = dist * 0.92;
+  }
+}
+function drawTendrils(time) {
+  var pc = svgToScreen(CX, CY);
+  tCtx.clearRect(0, 0, innerWidth, innerHeight);
+  for (var k = 0; k < tendrils.length; k++) {
+    var t = tendrils[k];
+    t.angle += (t.targetAngle - t.angle) * 0.06;
+    t.length += (t.targetLength - t.length) * 0.08;
+    var segs = 42;
+    tCtx.beginPath();
+    for (var i = 0; i <= segs; i++) {
+      var f = i / segs;
+      var r = f * t.length;
+      var ang = t.angle + Math.sin(time * 1.1 + t.phase + f * 5) * 0.09 * f;
+      var x = pc.x + Math.cos(ang) * r;
+      var y = pc.y + Math.sin(ang) * r;
+      var wob = twobble(x * 0.02, y * 0.02, time * 0.6 + t.phase) * 7 * f;
+      x += -Math.sin(ang) * wob;
+      y += Math.cos(ang) * wob;
+      if (i === 0) tCtx.moveTo(x, y); else tCtx.lineTo(x, y);
+    }
+    var ex = pc.x + Math.cos(t.angle) * t.length;
+    var ey = pc.y + Math.sin(t.angle) * t.length;
+    var grad = tCtx.createLinearGradient(pc.x, pc.y, ex, ey);
+    grad.addColorStop(0, "rgba(255,255,255,0.85)");
+    grad.addColorStop(0.25, "rgba(53,224,255,0.65)");
+    grad.addColorStop(0.7, "rgba(180,79,216,0.25)");
+    grad.addColorStop(1, "rgba(180,79,216,0)");
+    tCtx.strokeStyle = grad;
+    tCtx.lineWidth = t.width;
+    tCtx.lineCap = "round";
+    tCtx.shadowColor = "rgba(53,224,255,0.7)";
+    tCtx.shadowBlur = 10;
+    tCtx.stroke();
+    tCtx.shadowBlur = 0;
+    tCtx.beginPath();
+    tCtx.arc(ex, ey, 2.2, 0, Math.PI * 2);
+    tCtx.fillStyle = "rgba(255,255,255,0.9)";
+    tCtx.shadowColor = "rgba(53,224,255,1)";
+    tCtx.shadowBlur = 12;
+    tCtx.fill();
+    tCtx.shadowBlur = 0;
+  }
+  requestAnimationFrame(function (ts) { drawTendrils(ts / 1000); });
+}
+var _fireBeam = fireBeam;
+fireBeam = function (node) {
+  aimTendrils(node);
+  _fireBeam(node);
+  setTimeout(function () {
+    tendrils.forEach(function (t) { t.targetAngle = t.baseAngle; t.targetLength = 130; });
+  }, 2400);
+};
+
 /* ---------- Boot ---------- */
 connect();
+sizeTendrilCanvas();
+initTendrils();
+drawTendrils(0);
+window.addEventListener("resize", function () { sizeTendrilCanvas(); });
 setInterval(pollState, 7000);
 pollState();
 setRo("roAgent", "IDLE");
