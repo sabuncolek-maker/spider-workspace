@@ -380,17 +380,156 @@ function netDraw(now) {
   });
 
   // physics: run until settled, then stop (honest stillness)
+  // BUT keep running while crawlers are active (they are real activity)
+  updateCrawlers(now);
+  drawCrawlers();
   if (!reduced) {
     var energy = netPhysics();
-    if (energy > 0.5) {
+    if (energy > 0.5 || crawlers.length > 0) {
       requestAnimationFrame(netDraw);
     } else {
       netRunning = false;
-      // final static render
     }
   } else {
-    netRunning = false;
+    if (crawlers.length > 0) requestAnimationFrame(netDraw);
+    else netRunning = false;
   }
+}
+
+/* ================= CRAWLER ARMY =================
+ * Crawlers = visual representation of tool executions.
+ * - Spawn from Master Spider on TOOL_STARTED (real event only)
+ * - browser.* tools: exploration behavior (spread outward, web activity)
+ * - other tools: move directly to their network node
+ * - Return to spider on COMPLETE/FAILED, then fade
+ * HONEST: crawlers represent tool executions, NOT specific URLs.
+ * We do not have URL data and do not fabricate it.
+ */
+var crawlers = []; // {x,y,tx,ty,state,nodeId,isWeb,born,alpha}
+var masterSpiderEl = document.getElementById("masterSpider");
+
+function spiderPos() {
+  if (!masterSpiderEl) return { x: 80, y: window.innerHeight / 2 };
+  var r = masterSpiderEl.getBoundingClientRect();
+  return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+}
+
+function isWebTool(tool) {
+  var t = String(tool).toLowerCase();
+  return t.indexOf("browser") !== -1 || t === "search" || t === "deep_research" || t === "open";
+}
+
+function spawnCrawlers(tool, node) {
+  if (!netCtx) return;
+  var sp = spiderPos();
+  var web = isWebTool(tool);
+  var count = web ? 3 : 1;
+  // deterministic spread: fan out by index (no randomness)
+  for (var i = 0; i < count; i++) {
+    var angle = web ? (-0.5 + i * 0.5) : 0; // web: fan; else: straight
+    crawlers.push({
+      x: sp.x, y: sp.y,
+      tx: sp.x, ty: sp.y,
+      angle: angle, isWeb: web,
+      nodeId: node ? node.id : null,
+      state: "deploying", // deploying -> exploring/working -> returning -> gone
+      born: performance.now(), alpha: 0
+    });
+  }
+  if (masterSpiderEl) masterSpiderEl.classList.add("working");
+  netKick();
+}
+
+function crawlerTarget(c) {
+  var dpr = window.devicePixelRatio || 1;
+  var W = netCanvas.width / dpr, H = netCanvas.height / dpr;
+  if (c.state === "returning") {
+    var sp = spiderPos();
+    return { x: sp.x, y: sp.y };
+  }
+  if (c.isWeb && c.state === "exploring") {
+    // Web exploration: move outward in fan pattern (deterministic drift)
+    // Target is a region, NOT a specific URL (we don't have URL data)
+    var t = (performance.now() - c.born) / 1000;
+    var baseX = W * 0.55, baseY = H * 0.5;
+    return {
+      x: baseX + Math.cos(c.angle * 2 + t * 0.3) * W * 0.28,
+      y: baseY + Math.sin(c.angle * 2 + t * 0.4) * H * 0.3
+    };
+  }
+  // Non-web or deploying: go to assigned node
+  if (c.nodeId != null && netNodes[c.nodeId]) {
+    return { x: netNodes[c.nodeId].x, y: netNodes[c.nodeId].y };
+  }
+  return { x: c.x, y: c.y };
+}
+
+function updateCrawlers(now) {
+  var sp = spiderPos();
+  for (var i = crawlers.length - 1; i >= 0; i--) {
+    var c = crawlers[i];
+    // fade in
+    if (c.alpha < 1 && c.state !== "returning") c.alpha = Math.min(1, c.alpha + 0.06);
+    // state transitions
+    if (c.state === "deploying") {
+      var d0 = Math.hypot(c.tx - c.x, c.ty - c.y);
+      if (d0 < 8) c.state = c.isWeb ? "exploring" : "working";
+    }
+    if (c.state === "returning") {
+      c.alpha -= 0.05;
+      if (c.alpha <= 0 || Math.hypot(sp.x - c.x, sp.y - c.y) < 12) {
+        crawlers.splice(i, 1);
+        continue;
+      }
+    }
+    var tgt = crawlerTarget(c);
+    c.tx = tgt.x; c.ty = tgt.y;
+    var dx = c.tx - c.x, dy = c.ty - c.y;
+    var d = Math.hypot(dx, dy);
+    var speed = c.isWeb ? 2.5 : 4;
+    if (d > 1) {
+      c.x += dx / d * Math.min(speed, d);
+      c.y += dy / d * Math.min(speed, d);
+    }
+  }
+  // spider idle when no crawlers
+  if (!crawlers.length && masterSpiderEl) masterSpiderEl.classList.remove("working");
+}
+
+function recallCrawlers(nodeId) {
+  crawlers.forEach(function (c) {
+    if (c.nodeId === nodeId && c.state !== "returning") c.state = "returning";
+  });
+  netKick();
+}
+
+function drawCrawlers() {
+  if (!netCtx) return;
+  crawlers.forEach(function (c) {
+    if (c.alpha <= 0) return;
+    netCtx.globalAlpha = Math.max(0, c.alpha);
+    // crawler body: small diamond
+    var s = c.isWeb ? 4 : 3;
+    netCtx.beginPath();
+    netCtx.moveTo(c.x, c.y - s);
+    netCtx.lineTo(c.x + s, c.y);
+    netCtx.lineTo(c.x, c.y + s);
+    netCtx.lineTo(c.x - s, c.y);
+    netCtx.closePath();
+    netCtx.fillStyle = c.isWeb ? "#35e0ff" : "#a78bfa";
+    netCtx.shadowColor = c.isWeb ? "#35e0ff" : "#a78bfa";
+    netCtx.shadowBlur = 8;
+    netCtx.fill();
+    netCtx.shadowBlur = 0;
+    // trail
+    netCtx.beginPath();
+    netCtx.moveTo(c.x, c.y);
+    netCtx.lineTo(c.x - (c.tx - c.x) * 0.08, c.y - (c.ty - c.y) * 0.08);
+    netCtx.strokeStyle = c.isWeb ? "rgba(53,224,255,0.35)" : "rgba(167,139,250,0.35)";
+    netCtx.lineWidth = 1;
+    netCtx.stroke();
+    netCtx.globalAlpha = 1;
+  });
 }
 
 function netKick() {
@@ -489,6 +628,7 @@ function handleMessage(msg) {
     updateStats();
     var n = netAddNode(tool, node, ts, eid);
     if (n && eid) pendingNodes[eid] = n;
+    spawnCrawlers(tool, n); // crawlers deploy from spider (real event)
     // If no completion arrives: mark UNCERTAIN, never assume DONE.
     if (eid) {
       (function (id) {
@@ -503,20 +643,24 @@ function handleMessage(msg) {
     var ok = msg.success !== false;
     // Match by eventId first, then by tool name (fallback for unpaired events)
     var matched = false;
+    var matchedNodeId = null;
     if (eid && pendingNodes[eid]) {
       netSetStatus(eid, ok ? "done" : "failed");
+      matchedNodeId = pendingNodes[eid].id;
       delete pendingNodes[eid];
       matched = true;
     } else {
       for (var k in pendingNodes) {
         if (pendingNodes[k].tool === tool && pendingNodes[k].status === "active") {
           netSetStatus(k, ok ? "done" : "failed");
+          matchedNodeId = pendingNodes[k].id;
           delete pendingNodes[k];
           matched = true;
           break;
         }
       }
     }
+    if (matchedNodeId != null) recallCrawlers(matchedNodeId);
     if (!ok && tool !== "db" && !matched) {
       // Failed without a prior START: create node directly as failed
       stats.tools++;
