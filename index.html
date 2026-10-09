@@ -3,82 +3,31 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>PULSAR — SPIDER Telemetry</title>
+<title>SWARM — SPIDER Telemetry</title>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
 <div id="cosmos">
   <div id="spacePhoto"></div>
   <div id="nebulaDrift"></div>
-  <div id="starfield"></div>
 </div>
-<div id="stage">
-  <svg id="galaxy" viewBox="0 0 1200 800" preserveAspectRatio="xMidYMid meet" aria-label="Pulsar telemetry">
-    <defs>
-      <radialGradient id="pulsarCore" cx="50%" cy="50%" r="50%">
-        <stop offset="0%" stop-color="#ffffff" stop-opacity="1"/>
-        <stop offset="25%" stop-color="#d8f9ff" stop-opacity="0.95"/>
-        <stop offset="55%" stop-color="#35e0ff" stop-opacity="0.7"/>
-        <stop offset="85%" stop-color="#1a6fc1" stop-opacity="0.25"/>
-        <stop offset="100%" stop-color="#1a6fc1" stop-opacity="0"/>
-      </radialGradient>
-      <radialGradient id="pulsarHalo" cx="50%" cy="50%" r="50%">
-        <stop offset="0%" stop-color="#35e0ff" stop-opacity="0.4"/>
-        <stop offset="60%" stop-color="#b44fd8" stop-opacity="0.15"/>
-        <stop offset="100%" stop-color="#b44fd8" stop-opacity="0"/>
-      </radialGradient>
-      <linearGradient id="beamGrad" x1="0%" y1="0%" x2="100%" y2="0%">
-        <stop offset="0%" stop-color="#ffffff" stop-opacity="0.95"/>
-        <stop offset="30%" stop-color="#35e0ff" stop-opacity="0.8"/>
-        <stop offset="70%" stop-color="#b44fd8" stop-opacity="0.4"/>
-        <stop offset="100%" stop-color="#b44fd8" stop-opacity="0"/>
-      </linearGradient>
-      <radialGradient id="nodeGlow" cx="50%" cy="50%" r="50%">
-        <stop offset="0%" stop-color="#ffffff" stop-opacity="0.9"/>
-        <stop offset="40%" stop-color="#35e0ff" stop-opacity="0.5"/>
-        <stop offset="100%" stop-color="#35e0ff" stop-opacity="0"/>
-      </radialGradient>
-    </defs>
-    <g id="spiralArms" aria-hidden="true"></g>
-    <g id="beams"></g>
-    <g id="nodes"></g>
-    <g id="pulsar" transform="translate(600,400)" display="none">
-      <circle id="haloOuter" r="120" fill="url(#pulsarHalo)" class="halo-pulse"/>
-      <circle id="haloInner" r="70" fill="url(#pulsarHalo)" class="halo-pulse" style="animation-delay:1.2s"/>
-      <g id="beamRotator">
-        <polygon id="beam1" points="0,0 400,-18 400,18" fill="url(#beamGrad)" opacity="0.35" class="beam"/>
-        <polygon id="beam2" points="0,0 -400,-18 -400,18" fill="url(#beamGrad)" opacity="0.35" class="beam"/>
-      </g>
-      <circle id="coreOuter" r="34" fill="url(#pulsarCore)" class="core-breathe"/>
-      <circle id="coreWhite" r="12" fill="#ffffff" class="core-flare"/>
-      <g id="rings"></g>
-    </g>
-    <g id="particles"></g>
-  </svg>
-</div>
-<canvas id="tendrilCanvas"></canvas>
-<div id="vignette"></div>
+<canvas id="swarmCanvas"></canvas>
 
-<header id="readout">
-  <div class="brand">PULSAR <span>by Erlangga</span></div>
-  <dl>
-    <div><dt>agent</dt><dd id="roAgent">—</dd></div>
-    <div><dt>task</dt><dd id="roTask">—</dd></div>
-    <div><dt>node</dt><dd id="roNode">—</dd></div>
-    <div><dt>tool</dt><dd id="roTool">—</dd></div>
-    <div><dt>latest</dt><dd id="roLatest">—</dd></div>
-  </dl>
-  <div id="snapline">
-    <span id="snapBadge">—</span>
-    <span id="connDot"></span><span id="connText">connecting</span>
-  </div>
-  <div id="note"></div>
+<header id="statsbar">
+  <div class="stat"><span class="num" id="stTools">0</span><span class="lbl">TOOLS</span></div>
+  <div class="stat"><span class="num" id="stNodes">0</span><span class="lbl">NODES</span></div>
+  <div class="stat"><span class="num" id="stTrails">0</span><span class="lbl">TRAILS</span></div>
+  <div class="stat"><span class="num kept" id="stKept">0</span><span class="lbl">KEPT</span></div>
+  <div class="stat"><span class="num skipped" id="stSkipped">0</span><span class="lbl">SKIPPED</span></div>
+  <div class="stat brain"><span class="num" id="brainDot">●</span><span class="lbl" id="brainText">BRAIN IDLE</span></div>
 </header>
 
 <aside id="feed">
   <h2>Activity</h2>
   <ul id="feedList"></ul>
 </aside>
+
+<div id="connPill"><span id="connDot"></span><span id="connText">connecting</span></div>
 
 <script src="app.js"></script>
 </body>
