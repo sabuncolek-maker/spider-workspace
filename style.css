@@ -251,19 +251,19 @@ g.node.dim.dashed .node-ring { stroke-dasharray: 4 5; }
   stroke-linecap: round;
   stroke-linejoin: round;
   vector-effect: non-scaling-stroke;
-  opacity: 0.72;
-  filter: drop-shadow(0 0 2px rgba(195, 203, 215, 0.38));
+  opacity: 0.88;
+  filter: drop-shadow(0 0 3px rgba(195, 203, 215, 0.46));
 }
 @media (max-width: 480px) {
   .spider-web-trace {
     stroke-width: 1.25;
-    opacity: 0.70;
+    opacity: 0.84;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .spider-web-trace {
-    opacity: 0.66;
+    opacity: 0.78;
     filter: none;
   }
 }
