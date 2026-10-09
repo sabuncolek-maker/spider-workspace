@@ -1,5 +1,5 @@
 :root {
-  --bg: #0b0d11;
+  --bg: #12161c;
   --ink: #c9ced6;
   --dim: #6f7683;
   --faint: #3a404b;
@@ -33,7 +33,7 @@ body {
   position: absolute;
   inset: 0;
   pointer-events: none;
-  background: radial-gradient(ellipse 90% 80% at 50% 45%, transparent 55%, rgba(0, 0, 0, 0.5) 100%);
+  background: radial-gradient(ellipse 90% 80% at 50% 45%, transparent 55%, rgba(0, 0, 0, 0.38) 100%);
 }
 
 /* ---------- readout ---------- */
