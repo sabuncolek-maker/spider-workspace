@@ -233,76 +233,93 @@ g.node.dim.dashed .node-ring { stroke-dasharray: 4 5; }
 .thread { stroke: var(--line); stroke-width: 0.72; opacity: 0.38; }
 .thread.lit { stroke: rgba(217, 164, 65, 0.14); opacity: 0.72; }
 
-/* W1-A: ambient static world — depth via opacity, never competes with spider */
+/* W5: Aduok-inspired web language.
+ * Fine filament clouds + sparse junctions + negative space.
+ * Kept intentionally dim so the semantic route/spider remains primary. */
 #ambient { pointer-events: none; }
+
 .amb-edge { stroke: #8a93a6; stroke-width: 0.55; fill: none; }
 .amb-node { fill: #8a93a6; }
-.amb-strand { fill: none; stroke: #8a93a6; stroke-width: 0.65; stroke-linecap: round; opacity: 0.13; }
-.amb-junction { fill: #8a93a6; opacity: 0.14; }
-.amb-strand.amb-near { opacity: 0.15; }
-.amb-strand.amb-mid { opacity: 0.105; }
-.amb-strand.amb-far { opacity: 0.07; }
-.amb-junction.amb-near { opacity: 0.16; }
-.amb-junction.amb-mid { opacity: 0.11; }
-.amb-junction.amb-far { opacity: 0.07; }
-/* W2-D: activity decay — smooth 2s return to baseline (no JS loop) */
+
+.amb-strand {
+  fill: none;
+  stroke: #9aa3b8;
+  stroke-width: 0.58;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+  opacity: 0.095;
+}
+.amb-strand.amb-near { opacity: 0.12; }
+.amb-strand.amb-mid { opacity: 0.085; }
+.amb-strand.amb-far { opacity: 0.055; }
+
+.amb-junction {
+  fill: #c8cfda;
+  opacity: 0.12;
+}
+.amb-junction.amb-near { opacity: 0.15; }
+.amb-junction.amb-mid { opacity: 0.10; }
+.amb-junction.amb-far { opacity: 0.065; }
+
+/* W2-D: activity decay — smooth 2s return to baseline. */
 #ambient [data-c] { transition: opacity 2s ease; }
-.amb-main-path { fill: none; stroke: #9aa3b8; stroke-width: 1; }
-.amb-near { opacity: 0.17; }
-.amb-mid { opacity: 0.12; }
-.amb-far { opacity: 0.08; }
-.amb-main-path { opacity: 0.18; }
-/* W2-A: ambient breathing — very slow subtle brightness oscillation, per-cluster phase.
- * Deterministic (fixed durations/delays, no random). Compositor-driven, no JS loop. */
+
+/* W2-A: very slow atmospheric breathing; compositor-driven. */
 @keyframes w2a-breathe {
   0%, 100% { filter: brightness(1); }
-  50% { filter: brightness(1.12); }
+  50% { filter: brightness(1.10); }
 }
 #ambient [data-c="0"] { animation: w2a-breathe 9s ease-in-out infinite; }
 #ambient [data-c="1"] { animation: w2a-breathe 11s ease-in-out 2s infinite; }
 #ambient [data-c="2"] { animation: w2a-breathe 10s ease-in-out 4s infinite; }
 #ambient [data-c="3"] { animation: w2a-breathe 12s ease-in-out 1s infinite; }
-/* W1-B2: cluster response — localized brightening */
-.amb-node.amb-active { opacity: 0.36; }
-.amb-edge.amb-active { opacity: 0.28; }
-/* W2-B: propagated response to adjacent clusters — weaker */
-.amb-node.amb-semi { opacity: 0.24; }
-.amb-edge.amb-semi { opacity: 0.18; }
-/* W1-B1: active navigation path — subtle energy on actual route */
+
+/* W1-B2/W2-B: local response, restrained for the denser filament field. */
+.amb-node.amb-active { opacity: 0.30; }
+.amb-edge.amb-active { opacity: 0.24; }
+.amb-node.amb-semi { opacity: 0.20; }
+.amb-edge.amb-semi { opacity: 0.15; }
+
+/* W1-B1/W2-C: active navigation energy follows the real route. */
 .w1b-active-path {
-  fill: none; stroke: #d9a441; stroke-width: 1.6;
-  opacity: 0.26; pointer-events: none;
-}
-/* W2-C: energy flow along active path — follows actual route geometry */
-@keyframes w2c-flow {
-  to { stroke-dashoffset: -24; }
-}
-.w1b-active-path {
+  fill: none;
+  stroke: #d9a441;
+  stroke-width: 1.55;
+  opacity: 0.25;
+  pointer-events: none;
   stroke-dasharray: 12 12;
   animation: w2c-flow 1.2s linear infinite;
 }
-/* W1-B3: spider trail — fading path */
+@keyframes w2c-flow {
+  to { stroke-dashoffset: -24; }
+}
+
 .w1b-trail {
-  fill: none; stroke: #d9a441; stroke-width: 1.3;
-  opacity: 0.20; pointer-events: none;
+  fill: none;
+  stroke: #d9a441;
+  stroke-width: 1.25;
+  opacity: 0.18;
+  pointer-events: none;
 }
-/* Mobile: reduce ambient density so spider stays focal */
+
+/* Mobile: preserve negative space and reduce cloud density visually. */
 @media (max-width: 480px) {
-  .amb-near { opacity: 0.16; }
-  .amb-mid { opacity: 0.12; }
-  .amb-far { opacity: 0.08; }
-  .amb-main-path { opacity: 0.18; }
-  .amb-node.amb-active { opacity: 0.32; }
-  .amb-edge.amb-active { opacity: 0.25; }
-  .w1b-active-path { opacity: 0.28; }
-  .w1b-trail { opacity: 0.2; }
+  .amb-strand.amb-near { opacity: 0.105; }
+  .amb-strand.amb-mid { opacity: 0.075; }
+  .amb-strand.amb-far { opacity: 0.05; }
+  .amb-junction.amb-near { opacity: 0.13; }
+  .amb-junction.amb-mid { opacity: 0.09; }
+  .amb-junction.amb-far { opacity: 0.055; }
+  .w1b-active-path { opacity: 0.26; }
+  .w1b-trail { opacity: 0.18; }
 }
-/* W1-A: static only — no ambient animation, reduced-motion included */
+
 @media (prefers-reduced-motion: reduce) {
   #ambient { opacity: 1; }
-  #ambient [data-c] { animation: none; } /* W2-A: disable breathing */
+  #ambient [data-c] { animation: none; }
   .w1b-active-path, .w1b-trail { display: none; }
-  .w1b-active-path { animation: none; } /* W2-C: disable energy flow */
+  .w1b-active-path { animation: none; }
   .amb-node.amb-active, .amb-edge.amb-active { opacity: inherit; }
 }
 
